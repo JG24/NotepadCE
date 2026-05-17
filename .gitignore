@@ -1,0 +1,66 @@
+# Build output
+build/
+target/
+_CPack_Packages/
+
+# CMake (defense-in-depth — already inside build/ but in case someone runs out-of-tree)
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+CPackConfig.cmake
+CPackSourceConfig.cmake
+compile_commands.json
+_deps/
+
+# Compiled binaries and intermediates
+*.exe
+*.exe.old
+*.old
+*.dll
+*.obj
+*.o
+*.a
+*.lib
+*.exp
+*.res
+*.ilk
+*.pdb
+*.idb
+*.tlog
+*.log
+
+# Visual Studio / MSVC
+.vs/
+CMakeSettings.json
+*.user
+*.vcxproj.user
+
+# VS Code
+.vscode/
+
+# JetBrains (CLion / Rider)
+.idea/
+cmake-build-*/
+
+# Editor backups and swap files
+*.bak
+*.orig
+*.rej
+*.swp
+*.swo
+*~
+
+# Windows shell junk
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+# Code analysis
+_codeql_build_dir
+_codeql_detected_source_root
+
+# Local / project-specific
+.claude
+RELEASE_NOTES.md
+icon-source.psd

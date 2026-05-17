@@ -1,0 +1,114 @@
+#include "resource.h"
+#include <windows.h>
+
+IDI_NOTEPAD ICON "icon.ico"
+
+// Embed application manifest (resource type 24 = RT_MANIFEST, ID 1 =
+// CREATEPROCESS_MANIFEST_RESOURCE_ID). Required for comctl32 v6, which
+// in turn is required for the SysLink control used in the About dialog.
+1 24 "app.manifest"
+
+IDR_MAINMENU MENU
+BEGIN
+    POPUP "&File"
+    BEGIN
+        MENUITEM "&New\tCtrl+N", IDM_FILE_NEW
+        MENUITEM "&Open...\tCtrl+O", IDM_FILE_OPEN
+        MENUITEM "&Save\tCtrl+S", IDM_FILE_SAVE
+        MENUITEM "Save &As...\tCtrl+Shift+S", IDM_FILE_SAVEAS
+        MENUITEM SEPARATOR
+        MENUITEM "&Print...\tCtrl+P", IDM_FILE_PRINT
+        MENUITEM "Page Set&up...", IDM_FILE_PAGESETUP
+        MENUITEM SEPARATOR
+        MENUITEM "E&xit", IDM_FILE_EXIT
+    END
+    POPUP "&Edit"
+    BEGIN
+        MENUITEM "&Undo\tCtrl+Z", IDM_EDIT_UNDO
+        MENUITEM "&Redo\tCtrl+Y", IDM_EDIT_REDO
+        MENUITEM SEPARATOR
+        MENUITEM "Cu&t\tCtrl+X", IDM_EDIT_CUT
+        MENUITEM "&Copy\tCtrl+C", IDM_EDIT_COPY
+        MENUITEM "&Paste\tCtrl+V", IDM_EDIT_PASTE
+        MENUITEM "De&lete\tDel", IDM_EDIT_DELETE
+        MENUITEM SEPARATOR
+        MENUITEM "&Find...\tCtrl+F", IDM_EDIT_FIND
+        MENUITEM "Find &Next\tF3", IDM_EDIT_FINDNEXT
+        MENUITEM "Find Pre&vious\tShift+F3", IDM_EDIT_FINDPREV
+        MENUITEM "&Replace...\tCtrl+H", IDM_EDIT_REPLACE
+        MENUITEM "&Go To...\tCtrl+G", IDM_EDIT_GOTO
+        MENUITEM SEPARATOR
+        MENUITEM "Select &All\tCtrl+A", IDM_EDIT_SELECTALL
+        MENUITEM "Time/&Date\tF5", IDM_EDIT_TIMEDATE
+        MENUITEM "&Spell Check", IDM_EDIT_SETTINGS_SPELLCHECK
+        MENUITEM SEPARATOR
+        POPUP "&Settings"
+        BEGIN
+            MENUITEM "&Date and Time Format...", IDM_EDIT_SETTINGS_DATEFORMAT
+            MENUITEM "&Enable Tools", IDM_EDIT_SETTINGS_TOOLS
+            MENUITEM "&Quick Access Icons", IDM_EDIT_SETTINGS_QUICKICONS
+        END
+    END
+    POPUP "F&ormat"
+    BEGIN
+        MENUITEM "&Word Wrap", IDM_FORMAT_WORDWRAP
+        MENUITEM "&Font...", IDM_FORMAT_FONT
+    END
+    POPUP "&View"
+    BEGIN
+        MENUITEM "Zoom &In\tCtrl+Plus", IDM_VIEW_ZOOMIN
+        MENUITEM "Zoom &Out\tCtrl+Minus", IDM_VIEW_ZOOMOUT
+        MENUITEM "&Restore Default Zoom\tCtrl+0", IDM_VIEW_ZOOMDEFAULT
+        MENUITEM SEPARATOR
+        MENUITEM "&Status Bar", IDM_VIEW_STATUSBAR, CHECKED
+        MENUITEM "&Dark Mode", IDM_VIEW_DARKMODE
+        MENUITEM "Show S&pecial Characters", IDM_VIEW_SHOWSPECIAL
+        MENUITEM "Line &Numbers", IDM_VIEW_LINENUMBERS
+        POPUP "&Language"
+        BEGIN
+            MENUITEM "&English", IDM_VIEW_LANG_EN
+            MENUITEM "&Polish", IDM_VIEW_LANG_PL
+            MENUITEM "&Japanese", IDM_VIEW_LANG_JA
+        END
+        MENUITEM SEPARATOR
+        MENUITEM "Window &Transparency...", IDM_VIEW_TRANSPARENCY
+        MENUITEM "Always on &Top", IDM_VIEW_ALWAYSONTOP
+    END
+    POPUP "&Tools"
+    BEGIN
+        MENUITEM "&Normalize Text", IDM_TOOLS_NORMALIZE
+        MENUITEM "&Base64", IDM_TOOLS_BASE64
+        MENUITEM "&SHA1", IDM_TOOLS_SHA1
+        MENUITEM "&MD5", IDM_TOOLS_MD5
+    END
+    POPUP "&Help"
+    BEGIN
+        MENUITEM "&About Notepad", IDM_HELP_ABOUT
+    END
+END
+
+IDR_ACCEL ACCELERATORS
+BEGIN
+    "N", IDM_FILE_NEW, VIRTKEY, CONTROL
+    "O", IDM_FILE_OPEN, VIRTKEY, CONTROL
+    "S", IDM_FILE_SAVE, VIRTKEY, CONTROL
+    "S", IDM_FILE_SAVEAS, VIRTKEY, CONTROL, SHIFT
+    "P", IDM_FILE_PRINT, VIRTKEY, CONTROL
+    "Z", IDM_EDIT_UNDO, VIRTKEY, CONTROL
+    "Y", IDM_EDIT_REDO, VIRTKEY, CONTROL
+    "X", IDM_EDIT_CUT, VIRTKEY, CONTROL
+    "C", IDM_EDIT_COPY, VIRTKEY, CONTROL
+    "V", IDM_EDIT_PASTE, VIRTKEY, CONTROL
+    "F", IDM_EDIT_FIND, VIRTKEY, CONTROL
+    VK_F3, IDM_EDIT_FINDNEXT, VIRTKEY
+    VK_F3, IDM_EDIT_FINDPREV, VIRTKEY, SHIFT
+    "H", IDM_EDIT_REPLACE, VIRTKEY, CONTROL
+    "G", IDM_EDIT_GOTO, VIRTKEY, CONTROL
+    "A", IDM_EDIT_SELECTALL, VIRTKEY, CONTROL
+    VK_F5, IDM_EDIT_TIMEDATE, VIRTKEY
+    "D", IDM_EDIT_DUPLICATELINE, VIRTKEY, CONTROL
+    "E", IDM_EDIT_DELETELINE, VIRTKEY, CONTROL
+    VK_OEM_PLUS, IDM_VIEW_ZOOMIN, VIRTKEY, CONTROL
+    VK_OEM_MINUS, IDM_VIEW_ZOOMOUT, VIRTKEY, CONTROL
+    "0", IDM_VIEW_ZOOMDEFAULT, VIRTKEY, CONTROL
+END
