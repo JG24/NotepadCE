@@ -4,6 +4,8 @@
 
 NotepadCE is a fork of [Legacy Notepad](https://github.com/forloopcodes/legacy-notepad) written in pure C++ on top of the Win32 API. It is intended as a daily-driver replacement for the built-in `notepad.exe` on Windows 11 — no telemetry, no Microsoft account, no cloud, no Store, no half-second cold start. A single `.exe` file, fully portable, under half a megabyte.
 
+![NotepadCE main window](screenshots/default.png)
+
 ---
 
 ## Table of contents
@@ -54,6 +56,8 @@ NotepadCE is a fork of [Legacy Notepad](https://github.com/forloopcodes/legacy-n
 
 ### Look and feel
 
+![Dark mode](screenshots/dark-mode.png)
+
 - **Dark mode** — full dark theme for the main window, menus, status bar, dialogs and custom controls. No flicker when switching themes (this took some extra care around `CFE_AUTOBACKCOLOR` in RichEdit, so per-character background color does not bleed across theme changes).
 - **Owner-drawn menus** in dark mode — with proper hover handling on the menu bar (`WM_NCMOUSEMOVE` / `WM_NCMOUSELEAVE`).
 - **Status bar** with six sections: character / selection counter, total lines, current row, current column, encoding, line-ending format.
@@ -68,6 +72,8 @@ NotepadCE is a fork of [Legacy Notepad](https://github.com/forloopcodes/legacy-n
 - Works offline using system dictionaries.
 
 ### Text tools (Tools menu)
+
+![Text normalization tool](screenshots/text-normalize.png)
 
 - **Text normalization** — turns the usual "clipboard garbage" into clean ASCII / UTF-8. Full typographic conversion:
   - Smart quotes (`"" '' « »`) → straight equivalents, including `«` → `<<` and `»` → `>>`.
@@ -84,6 +90,10 @@ NotepadCE is a fork of [Legacy Notepad](https://github.com/forloopcodes/legacy-n
 
 ### Customization
 
+![Window transparency](screenshots/transparency.png)
+
+
+
 - **Date and time format** — custom template (`%Y`, `%m`, `%d`, `%H`, `%I`, `%M`, `%S`, `%p`, `%A`, `%B`) with live preview.
 - **Font** — any system font via the native font picker.
 - **UI language** — switched live, no restart, no `.lang` files.
@@ -94,31 +104,31 @@ NotepadCE is a fork of [Legacy Notepad](https://github.com/forloopcodes/legacy-n
 
 ## Keyboard shortcuts
 
-| Shortcut | Action |
-|----------|--------|
-| `Ctrl+N` | New file |
-| `Ctrl+O` | Open file |
-| `Ctrl+S` | Save |
-| `Ctrl+Shift+S` | Save as |
-| `Ctrl+P` | Print |
-| `Ctrl+Z` | Undo |
-| `Ctrl+Y` | Redo |
-| `Ctrl+X` | Cut |
-| `Ctrl+C` | Copy |
-| `Ctrl+V` | Paste (with Word auto-detection) |
-| `Del` | Delete |
-| `Ctrl+A` | Select all |
-| `Ctrl+F` | Find |
-| `F3` | Find next |
-| `Shift+F3` | Find previous |
-| `Ctrl+H` | Replace |
-| `Ctrl+G` | Go to line |
-| `Ctrl+D` | Duplicate line |
-| `Ctrl+E` | Delete line |
-| `F5` | Insert date and time |
-| `Ctrl++` | Zoom in |
-| `Ctrl+-` | Zoom out |
-| `Ctrl+0` | Reset zoom |
+| Shortcut       | Action                           |
+| -------------- | -------------------------------- |
+| `Ctrl+N`       | New file                         |
+| `Ctrl+O`       | Open file                        |
+| `Ctrl+S`       | Save                             |
+| `Ctrl+Shift+S` | Save as                          |
+| `Ctrl+P`       | Print                            |
+| `Ctrl+Z`       | Undo                             |
+| `Ctrl+Y`       | Redo                             |
+| `Ctrl+X`       | Cut                              |
+| `Ctrl+C`       | Copy                             |
+| `Ctrl+V`       | Paste (with Word auto-detection) |
+| `Del`          | Delete                           |
+| `Ctrl+A`       | Select all                       |
+| `Ctrl+F`       | Find                             |
+| `F3`           | Find next                        |
+| `Shift+F3`     | Find previous                    |
+| `Ctrl+H`       | Replace                          |
+| `Ctrl+G`       | Go to line                       |
+| `Ctrl+D`       | Duplicate line                   |
+| `Ctrl+E`       | Delete line                      |
+| `F5`           | Insert date and time             |
+| `Ctrl++`       | Zoom in                          |
+| `Ctrl+-`       | Zoom out                         |
+| `Ctrl+0`       | Reset zoom                       |
 
 ---
 
