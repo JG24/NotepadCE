@@ -2,6 +2,11 @@
 #include "en.h"
 #include "ja.h"
 #include "pl.h"
+#include "de.h"
+#include "cs.h"
+#include "uk.h"
+#include "lt.h"
+#include "ru.h"
 #include "../modules/settings.h"
 #include <windows.h>
 
@@ -38,6 +43,21 @@ void SetLanguage(LangID lang)
         break;
     case LangID::PL:
         g_currentStrings = &g_langPL;
+        break;
+    case LangID::DE:
+        g_currentStrings = &g_langDE;
+        break;
+    case LangID::CS:
+        g_currentStrings = &g_langCS;
+        break;
+    case LangID::UK:
+        g_currentStrings = &g_langUK;
+        break;
+    case LangID::LT:
+        g_currentStrings = &g_langLT;
+        break;
+    case LangID::RU:
+        g_currentStrings = &g_langRU;
         break;
     case LangID::EN:
     default:

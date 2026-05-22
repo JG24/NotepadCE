@@ -23,9 +23,17 @@
 #include "resource.h"
 #include "lang/lang.h"
 #include <richedit.h>
+#include <richole.h>
+#include <tom.h>
 #include <windowsx.h>
 #include <algorithm>
 #include <vector>
+
+// tom.h declares IID_ITextDocument but its symbol lives in uuid.lib /
+// libuuid.a — not pulled in by this static build. Inline the GUID by
+// value so QueryInterface works without an extra link dependency.
+static const IID kIID_ITextDocument =
+    {0x8CC497C0, 0xA1DF, 0x11CE, {0x80, 0x98, 0x00, 0xAA, 0x00, 0x47, 0xBE, 0x5D}};
 
 struct StreamCookie
 {
@@ -90,6 +98,14 @@ std::pair<int, int> GetCursorPos()
 
 void ApplyFont()
 {
+    // Snapshot modified — zoom / font dialog / theme toggle aren't user
+    // edits, but RichEdit fires EN_CHANGE on both WM_SETFONT and on
+    // SCF_ALL EM_SETCHARFORMAT, which would set the flag and add a "*"
+    // to the title bar. ApplyTheme() only suppresses around the latter;
+    // WM_SETFONT slips through. Belt-and-braces: suppress the event mask
+    // around the whole editor-side block AND restore the flag at the
+    // end, in case anything else cascades into an EN_CHANGE.
+    bool wasModified = g_state.modified;
     if (g_state.hFont)
     {
         DeleteObject(g_state.hFont);
@@ -104,16 +120,23 @@ void ApplyFont()
     g_state.hFont = CreateFontW(height, 0, 0, 0, g_state.fontWeight, g_state.fontItalic, g_state.fontUnderline, FALSE,
                                 DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
                                 DEFAULT_PITCH | FF_DONTCARE, g_state.fontName.c_str());
+    LRESULT oldMask = SendMessageW(g_hwndEditor, EM_SETEVENTMASK, 0, 0);
     SendMessageW(g_hwndEditor, WM_SETFONT, reinterpret_cast<WPARAM>(g_state.hFont), TRUE);
-    COLORREF textColor = IsDarkMode() ? RGB(255, 255, 255) : GetSysColor(COLOR_WINDOWTEXT);
+    COLORREF textColor = GetEditorTextColor();
     CHARFORMAT2W cf = {};
     cf.cbSize = sizeof(cf);
     cf.dwMask = CFM_COLOR;
     cf.crTextColor = textColor;
     SendMessageW(g_hwndEditor, EM_SETCHARFORMAT, SCF_ALL, reinterpret_cast<LPARAM>(&cf));
     SendMessageW(g_hwndEditor, EM_SETCHARFORMAT, SCF_DEFAULT, reinterpret_cast<LPARAM>(&cf));
+    SendMessageW(g_hwndEditor, EM_SETEVENTMASK, 0, oldMask);
     if (g_state.showLineNumbers && g_hwndGutter && UpdateGutterWidth())
         ResizeControls();
+    if (g_state.modified != wasModified)
+    {
+        g_state.modified = wasModified;
+        UpdateTitle();
+    }
 }
 
 void ApplyZoom()
@@ -123,6 +146,13 @@ void ApplyZoom()
 
 void ApplyWordWrap()
 {
+    // Toggling word-wrap rebuilds the editor and replays the existing text
+    // into it via EM_STREAMIN, which fires a real EN_CHANGE — RichEdit
+    // genuinely sees text being inserted. From the user's perspective
+    // that's not an edit, so snapshot the modified flag and restore it
+    // afterwards. UpdateTitle resyncs the title bar in case an EN_CHANGE
+    // already drew a stale "*" indicator.
+    bool wasModified = g_state.modified;
     std::wstring text = GetEditorText();
     DWORD start = 0, end = 0;
     SendMessageW(g_hwndEditor, EM_GETSEL, reinterpret_cast<WPARAM>(&start), reinterpret_cast<LPARAM>(&end));
@@ -141,6 +171,224 @@ void ApplyWordWrap()
     SendMessageW(g_hwndEditor, EM_SETSEL, start, end);
     ResizeControls();
     SetFocus(g_hwndEditor);
+    g_state.modified = wasModified;
+    UpdateTitle();
+}
+
+static void IndentDedentLines(HWND hwnd, bool dedent)
+{
+    DWORD selStart = 0, selEnd = 0;
+    SendMessageW(hwnd, EM_GETSEL, reinterpret_cast<WPARAM>(&selStart), reinterpret_cast<LPARAM>(&selEnd));
+    bool hasSelection = selStart != selEnd;
+
+    int firstLine = static_cast<int>(SendMessageW(hwnd, EM_EXLINEFROMCHAR, 0, selStart));
+    int lastLine = firstLine;
+    if (hasSelection)
+    {
+        int endLine = static_cast<int>(SendMessageW(hwnd, EM_EXLINEFROMCHAR, 0, selEnd));
+        int endLineStart = static_cast<int>(SendMessageW(hwnd, EM_LINEINDEX, endLine, 0));
+        // A selection that ends exactly at column 0 of the line after the
+        // intended one (the natural result of shift-down or triple-click)
+        // shouldn't pull that extra empty line into the indent block.
+        if (endLine > firstLine && static_cast<int>(selEnd) == endLineStart)
+            lastLine = endLine - 1;
+        else
+            lastLine = endLine;
+    }
+
+    int blockStart = static_cast<int>(SendMessageW(hwnd, EM_LINEINDEX, firstLine, 0));
+    int lastLineStart = static_cast<int>(SendMessageW(hwnd, EM_LINEINDEX, lastLine, 0));
+    int lastLineLen = static_cast<int>(SendMessageW(hwnd, EM_LINELENGTH, lastLineStart, 0));
+    int blockEnd = lastLineStart + lastLineLen;
+    int blockLen = blockEnd - blockStart;
+    if (blockLen < 0)
+        blockLen = 0;
+
+    std::vector<wchar_t> buf(static_cast<size_t>(blockLen) + 1, L'\0');
+    if (blockLen > 0)
+    {
+        TEXTRANGEW tr;
+        tr.chrg.cpMin = blockStart;
+        tr.chrg.cpMax = blockEnd;
+        tr.lpstrText = buf.data();
+        SendMessageW(hwnd, EM_GETTEXTRANGE, 0, reinterpret_cast<LPARAM>(&tr));
+    }
+    std::wstring block(buf.data());
+
+    std::wstring out;
+    out.reserve(block.size() + static_cast<size_t>(lastLine - firstLine + 1));
+
+    // Walk each line in the block, applying indent or dedent. RichEdit
+    // 2.0+ stores paragraph breaks as a single \r, so split on \r only.
+    size_t pos = 0;
+    while (true)
+    {
+        size_t eol = block.find(L'\r', pos);
+        size_t lineEnd = (eol == std::wstring::npos) ? block.size() : eol;
+
+        if (dedent)
+        {
+            // One leading tab, otherwise up to 4 leading spaces. Mirrors
+            // Notepad++ / VS Code Shift+Tab semantics.
+            size_t skip = 0;
+            if (pos < lineEnd && block[pos] == L'\t')
+                skip = 1;
+            else
+                while (skip < 4 && pos + skip < lineEnd && block[pos + skip] == L' ')
+                    ++skip;
+            out.append(block, pos + skip, lineEnd - pos - skip);
+        }
+        else
+        {
+            out.push_back(L'\t');
+            out.append(block, pos, lineEnd - pos);
+        }
+
+        if (eol == std::wstring::npos)
+            break;
+        out.push_back(L'\r');
+        pos = eol + 1;
+    }
+
+    SendMessageW(hwnd, EM_SETSEL, blockStart, blockEnd);
+    SendMessageW(hwnd, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(out.c_str()));
+
+    int newBlockEnd = blockStart + static_cast<int>(out.size());
+    if (hasSelection)
+    {
+        // Re-select the modified block so the user can repeat Tab / Shift+Tab.
+        SendMessageW(hwnd, EM_SETSEL, blockStart, newBlockEnd);
+    }
+    else
+    {
+        // No-selection dedent: slide caret left by however many characters
+        // were stripped before it, but never past the line start.
+        int removed = blockLen - static_cast<int>(out.size());
+        int origCol = static_cast<int>(selStart) - blockStart;
+        int newCol = origCol - removed;
+        if (newCol < 0)
+            newCol = 0;
+        int newCaret = blockStart + newCol;
+        SendMessageW(hwnd, EM_SETSEL, newCaret, newCaret);
+    }
+}
+
+// Fetch the text in [cpMin, cpMax). RichEdit 2.0+ uses CR-only paragraph
+// breaks, so the returned string contains '\r' (never "\r\n").
+static std::wstring GetEditorTextRange(HWND hwnd, int cpMin, int cpMax)
+{
+    if (cpMax <= cpMin)
+        return std::wstring();
+    std::vector<wchar_t> buf(static_cast<size_t>(cpMax - cpMin) + 1, L'\0');
+    TEXTRANGEW tr;
+    tr.chrg.cpMin = cpMin;
+    tr.chrg.cpMax = cpMax;
+    tr.lpstrText = buf.data();
+    SendMessageW(hwnd, EM_GETTEXTRANGE, 0, reinterpret_cast<LPARAM>(&tr));
+    return std::wstring(buf.data());
+}
+
+// Move the line(s) spanned by the selection up or down by one, swapping
+// with the neighbouring line. Bound to Alt+Up / Alt+Down.
+static void MoveLines(HWND hwnd, bool down)
+{
+    DWORD selStart = 0, selEnd = 0;
+    SendMessageW(hwnd, EM_GETSEL, reinterpret_cast<WPARAM>(&selStart), reinterpret_cast<LPARAM>(&selEnd));
+    bool hasSelection = selStart != selEnd;
+
+    int firstLine = static_cast<int>(SendMessageW(hwnd, EM_EXLINEFROMCHAR, 0, selStart));
+    int lastLine = firstLine;
+    if (hasSelection)
+    {
+        int endLine = static_cast<int>(SendMessageW(hwnd, EM_EXLINEFROMCHAR, 0, selEnd));
+        int endLineStart = static_cast<int>(SendMessageW(hwnd, EM_LINEINDEX, endLine, 0));
+        // A selection ending exactly at column 0 of the following line
+        // (shift-down's natural result) shouldn't drag that line along.
+        if (endLine > firstLine && static_cast<int>(selEnd) == endLineStart)
+            lastLine = endLine - 1;
+        else
+            lastLine = endLine;
+    }
+
+    int totalLines = static_cast<int>(SendMessageW(hwnd, EM_GETLINECOUNT, 0, 0));
+    if (down ? (lastLine >= totalLines - 1) : (firstLine <= 0))
+        return; // already at the edge
+
+    int blockStart = static_cast<int>(SendMessageW(hwnd, EM_LINEINDEX, firstLine, 0));
+    int lastLineStart = static_cast<int>(SendMessageW(hwnd, EM_LINEINDEX, lastLine, 0));
+    int lastLineLen = static_cast<int>(SendMessageW(hwnd, EM_LINELENGTH, lastLineStart, 0));
+    int blockEnd = lastLineStart + lastLineLen;
+
+    std::wstring blockText = GetEditorTextRange(hwnd, blockStart, blockEnd);
+    int blockLen = static_cast<int>(blockText.size());
+
+    int repStart, repEnd, newBlockStart;
+    std::wstring combined;
+    if (down)
+    {
+        int nextStart = static_cast<int>(SendMessageW(hwnd, EM_LINEINDEX, lastLine + 1, 0));
+        int nextLen = static_cast<int>(SendMessageW(hwnd, EM_LINELENGTH, nextStart, 0));
+        int nextEnd = nextStart + nextLen;
+        std::wstring nextText = GetEditorTextRange(hwnd, nextStart, nextEnd);
+        combined = nextText + L"\r" + blockText;
+        repStart = blockStart;
+        repEnd = nextEnd;
+        newBlockStart = blockStart + static_cast<int>(nextText.size()) + 1;
+    }
+    else
+    {
+        int prevStart = static_cast<int>(SendMessageW(hwnd, EM_LINEINDEX, firstLine - 1, 0));
+        // The previous line's content ends one char before blockStart (the
+        // char at blockStart-1 is its terminating '\r').
+        std::wstring prevText = GetEditorTextRange(hwnd, prevStart, blockStart - 1);
+        combined = blockText + L"\r" + prevText;
+        repStart = prevStart;
+        repEnd = blockEnd;
+        newBlockStart = prevStart;
+    }
+
+    SendMessageW(hwnd, EM_SETSEL, repStart, repEnd);
+    SendMessageW(hwnd, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(combined.c_str()));
+
+    if (hasSelection)
+    {
+        // Keep the block selected so the move can be repeated.
+        SendMessageW(hwnd, EM_SETSEL, newBlockStart, newBlockStart + blockLen);
+    }
+    else
+    {
+        int caretOff = static_cast<int>(selStart) - blockStart;
+        if (caretOff < 0)
+            caretOff = 0;
+        if (caretOff > blockLen)
+            caretOff = blockLen;
+        SendMessageW(hwnd, EM_SETSEL, newBlockStart + caretOff, newBlockStart + caretOff);
+    }
+    SendMessageW(hwnd, EM_SCROLLCARET, 0, 0);
+}
+
+// Insert a newline that inherits the leading whitespace of the current
+// line (auto-indent). The copied indent is clamped to the caret column,
+// so pressing Enter at column 0 still produces a plain newline.
+static void InsertNewlineWithIndent(HWND hwnd)
+{
+    DWORD selStart = 0, selEnd = 0;
+    SendMessageW(hwnd, EM_GETSEL, reinterpret_cast<WPARAM>(&selStart), reinterpret_cast<LPARAM>(&selEnd));
+
+    int line = static_cast<int>(SendMessageW(hwnd, EM_EXLINEFROMCHAR, 0, selStart));
+    int lineStart = static_cast<int>(SendMessageW(hwnd, EM_LINEINDEX, line, 0));
+    int caretCol = static_cast<int>(selStart) - lineStart;
+
+    std::wstring head = GetEditorTextRange(hwnd, lineStart, lineStart + caretCol);
+    size_t indentLen = 0;
+    while (indentLen < head.size() &&
+           (head[indentLen] == L' ' || head[indentLen] == L'\t'))
+        ++indentLen;
+
+    std::wstring insert = L"\r";
+    insert.append(head, 0, indentLen);
+    SendMessageW(hwnd, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(insert.c_str()));
+    SendMessageW(hwnd, EM_SCROLLCARET, 0, 0);
 }
 
 void DeleteWordBackward()
@@ -336,55 +584,56 @@ static void PasteAsPlainText(HWND hwnd)
     DWORD selStart = 0, selEnd = 0;
     SendMessageW(hwnd, EM_GETSEL, reinterpret_cast<WPARAM>(&selStart), reinterpret_cast<LPARAM>(&selEnd));
 
-    // Insert with the standard replacement path so undo records it.
+    // Configure the editor's default character format on the *insertion
+    // point* before the paste, then run a single EM_REPLACESEL. The
+    // inserted text inherits the IP format we just set — RichEdit's
+    // "replacement text takes on the character formatting of the
+    // preceding character / IP" rule kicks in here. The big win: setting
+    // SCF_SELECTION on a collapsed selection touches no existing
+    // character, so it isn't recorded as an undoable edit. The paste
+    // becomes the SOLE undo step. Ctrl+Z reverses it; Ctrl+Y restores it.
+    //
+    // The earlier post-paste approach (apply CHARFORMAT2 to the inserted
+    // range after EM_REPLACESEL) created a second undo entry on top of
+    // the paste. First Ctrl+Z then only reversed the format change —
+    // visualised as the full pasted block being selected, since RichEdit
+    // restores the selection that was active when the format applied —
+    // and a second Ctrl+Z was needed to actually remove the text. Both
+    // Undo(tomSuspend) and BeginEditCollection() empirically broke the
+    // redo stack: Ctrl+Y after Ctrl+Z became a no-op. Pre-format avoids
+    // the whole class of problems.
+    HDC hdc = GetDC(hwnd);
+    int sizeTwips = MulDiv(g_state.fontSize * g_state.zoomLevel / 100, 1440, 72);
+    ReleaseDC(hwnd, hdc);
+
+    CHARFORMAT2W cf = {};
+    cf.cbSize = sizeof(cf);
+    cf.dwMask = CFM_FACE | CFM_SIZE | CFM_BOLD | CFM_ITALIC | CFM_UNDERLINE | CFM_UNDERLINETYPE | CFM_COLOR | CFM_BACKCOLOR;
+    wcscpy_s(cf.szFaceName, g_state.fontName.c_str());
+    cf.yHeight = sizeTwips;
+    // AUTOBACKCOLOR so the pasted text follows the editor's bg colour
+    // (EM_SETBKGNDCOLOR) instead of baking in a per-char dark/light value
+    // that would survive theme switches.
+    cf.dwEffects = CFE_AUTOBACKCOLOR;
+    if (g_state.fontWeight >= FW_BOLD)
+        cf.dwEffects |= CFE_BOLD;
+    if (g_state.fontItalic)
+        cf.dwEffects |= CFE_ITALIC;
+    if (g_state.fontUnderline)
+        cf.dwEffects |= CFE_UNDERLINE;
+    cf.bUnderlineType = g_state.fontUnderline ? CFU_UNDERLINE : CFU_UNDERLINENONE;
+    cf.crTextColor = GetEditorTextColor();
+
+    LRESULT oldMask = SendMessageW(hwnd, EM_SETEVENTMASK, 0, 0);
+    // Collapse to the insertion point, push the IP format, then restore
+    // the user's original selection so EM_REPLACESEL still replaces it
+    // (instead of just inserting at the caret).
+    SendMessageW(hwnd, EM_SETSEL, selStart, selStart);
+    SendMessageW(hwnd, EM_SETCHARFORMAT, SCF_SELECTION, reinterpret_cast<LPARAM>(&cf));
+    SendMessageW(hwnd, EM_SETSEL, selStart, selEnd);
+    SendMessageW(hwnd, EM_SETEVENTMASK, 0, oldMask);
+
     SendMessageW(hwnd, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(text));
-
-    DWORD newEnd = 0;
-    SendMessageW(hwnd, EM_GETSEL, 0, reinterpret_cast<LPARAM>(&newEnd));
-
-    // Force editor's default font on the just-inserted range. RichEdit's
-    // own paste — and even EM_PASTESPECIAL CF_UNICODETEXT — can keep the
-    // font that was active at the insertion point, which means a previous
-    // RTF fragment "infects" later plain pastes. Apply CHARFORMAT2 with
-    // the full mask so the inserted text matches the editor settings.
-    if (newEnd > selStart)
-    {
-        LRESULT oldMask = SendMessageW(hwnd, EM_SETEVENTMASK, 0, 0);
-        SendMessageW(hwnd, WM_SETREDRAW, FALSE, 0);
-
-        CHARRANGE range = {static_cast<LONG>(selStart), static_cast<LONG>(newEnd)};
-        SendMessageW(hwnd, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&range));
-
-        HDC hdc = GetDC(hwnd);
-        int sizeTwips = MulDiv(g_state.fontSize * g_state.zoomLevel / 100, 1440, 72);
-        ReleaseDC(hwnd, hdc);
-
-        CHARFORMAT2W cf = {};
-        cf.cbSize = sizeof(cf);
-        cf.dwMask = CFM_FACE | CFM_SIZE | CFM_BOLD | CFM_ITALIC | CFM_UNDERLINE | CFM_UNDERLINETYPE | CFM_COLOR | CFM_BACKCOLOR;
-        wcscpy_s(cf.szFaceName, g_state.fontName.c_str());
-        cf.yHeight = sizeTwips;
-        // Use AUTOBACKCOLOR so pasted text inherits the editor's bg colour
-        // from EM_SETBKGNDCOLOR rather than locking in a per-char dark/light
-        // colour that survives theme switches.
-        cf.dwEffects = CFE_AUTOBACKCOLOR;
-        if (g_state.fontWeight >= FW_BOLD)
-            cf.dwEffects |= CFE_BOLD;
-        if (g_state.fontItalic)
-            cf.dwEffects |= CFE_ITALIC;
-        if (g_state.fontUnderline)
-            cf.dwEffects |= CFE_UNDERLINE;
-        cf.bUnderlineType = g_state.fontUnderline ? CFU_UNDERLINE : CFU_UNDERLINENONE;
-        cf.crTextColor = IsDarkMode() ? RGB(255, 255, 255) : GetSysColor(COLOR_WINDOWTEXT);
-        SendMessageW(hwnd, EM_SETCHARFORMAT, SCF_SELECTION, reinterpret_cast<LPARAM>(&cf));
-
-        // Restore caret to end of inserted region.
-        SendMessageW(hwnd, EM_SETSEL, newEnd, newEnd);
-
-        SendMessageW(hwnd, WM_SETREDRAW, TRUE, 0);
-        SendMessageW(hwnd, EM_SETEVENTMASK, 0, oldMask);
-        InvalidateRect(hwnd, nullptr, TRUE);
-    }
 
     CloseClipboard();
 }
@@ -404,7 +653,8 @@ static void DrawSpecialCharMarkers(HWND hwnd)
         oldFont = reinterpret_cast<HFONT>(SelectObject(hdc, hFont));
 
     SetBkMode(hdc, TRANSPARENT);
-    SetTextColor(hdc, IsDarkMode() ? RGB(110, 110, 110) : RGB(180, 180, 180));
+    SetTextColor(hdc, IsMatrixTheme() ? RGB(40, 120, 55)
+                                      : (IsDarkMode() ? RGB(110, 110, 110) : RGB(180, 180, 180)));
 
     int firstLine = static_cast<int>(SendMessageW(hwnd, EM_GETFIRSTVISIBLELINE, 0, 0));
     int totalLines = static_cast<int>(SendMessageW(hwnd, EM_GETLINECOUNT, 0, 0));
@@ -513,10 +763,54 @@ LRESULT CALLBACK EditorSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             InvalidateRect(hwnd, nullptr, FALSE);
         return result;
     }
+    case WM_LBUTTONDBLCLK:
+    {
+        LRESULT result = CallWindowProcW(g_origEditorProc, hwnd, msg, wParam, lParam);
+        // RichEdit's word-select, when the double-click lands past the end
+        // of a line, grabs the invisible paragraph mark (a lone \r) — a
+        // 1-char "phantom" selection. Collapse it so nothing is selected.
+        // A selection containing any real character (incl. genuine
+        // trailing spaces) is left untouched.
+        DWORD s = 0, e = 0;
+        SendMessageW(hwnd, EM_GETSEL, reinterpret_cast<WPARAM>(&s), reinterpret_cast<LPARAM>(&e));
+        if (e > s)
+        {
+            std::wstring sel(static_cast<size_t>(e - s) + 1, L'\0');
+            SendMessageW(hwnd, EM_GETSELTEXT, 0, reinterpret_cast<LPARAM>(sel.data()));
+            sel.resize(wcslen(sel.c_str()));
+            bool onlyBreaks = !sel.empty();
+            for (wchar_t c : sel)
+            {
+                if (c != L'\r' && c != L'\n')
+                {
+                    onlyBreaks = false;
+                    break;
+                }
+            }
+            if (onlyBreaks)
+                SendMessageW(hwnd, EM_SETSEL, s, s);
+        }
+        return result;
+    }
     case WM_PASTE:
         PasteAsPlainText(hwnd);
         return 0;
     case WM_CHAR:
+        if (wParam == 9)
+        {
+            // Tab is handled entirely in WM_KEYDOWN — drop the WM_CHAR that
+            // TranslateMessage queues for VK_TAB so RichEdit doesn't insert
+            // a second \t after our manual handling.
+            return 0;
+        }
+        if (wParam == 13)
+        {
+            // Plain / Shift+Enter is handled in WM_KEYDOWN (auto-indent) —
+            // drop the CR that TranslateMessage queues so RichEdit doesn't
+            // add a second, un-indented line break. Ctrl+Enter yields a LF
+            // (wParam 10) instead and is left for the default handler.
+            return 0;
+        }
         if (wParam == 3)
             break;
         if (wParam == 22)
@@ -534,6 +828,31 @@ LRESULT CALLBACK EditorSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         }
         break;
     case WM_KEYDOWN:
+        if (wParam == VK_TAB && !(GetKeyState(VK_CONTROL) & 0x8000))
+        {
+            bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+            DWORD ss = 0, se = 0;
+            SendMessageW(hwnd, EM_GETSEL, reinterpret_cast<WPARAM>(&ss), reinterpret_cast<LPARAM>(&se));
+            // No selection + plain Tab: insert one \t at the caret. The
+            // multi-line indent helper is reserved for selections (and for
+            // Shift+Tab, which dedents even with no selection).
+            if (ss == se && !shift)
+            {
+                SendMessageW(hwnd, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(L"\t"));
+            }
+            else
+            {
+                IndentDedentLines(hwnd, shift);
+            }
+            return 0;
+        }
+        if (wParam == VK_RETURN && !(GetKeyState(VK_CONTROL) & 0x8000))
+        {
+            // Auto-indent: the new line inherits the leading whitespace of
+            // the current one. Covers plain Enter and Shift+Enter.
+            InsertNewlineWithIndent(hwnd);
+            return 0;
+        }
         if (GetKeyState(VK_CONTROL) & 0x8000)
         {
             if (wParam == VK_BACK)
@@ -548,11 +867,36 @@ LRESULT CALLBACK EditorSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             }
         }
         break;
+    case WM_SYSKEYDOWN:
+        // Alt+Up / Alt+Down move the current line(s). Everything else
+        // (Alt+letter menu access, etc.) falls through to the default.
+        if ((GetKeyState(VK_CONTROL) & 0x8000) == 0 &&
+            (GetKeyState(VK_SHIFT) & 0x8000) == 0)
+        {
+            if (wParam == VK_UP)
+            {
+                MoveLines(hwnd, false);
+                return 0;
+            }
+            if (wParam == VK_DOWN)
+            {
+                MoveLines(hwnd, true);
+                return 0;
+            }
+        }
+        break;
+    case WM_MOUSEACTIVATE:
+        // RichEdit defaults to MA_ACTIVATEANDEAT for an inactive-window
+        // click, which suppresses the WM_LBUTTONDOWN that would otherwise
+        // position the caret and start a selection drag. Return MA_ACTIVATE
+        // so the first click both activates the window and reaches the
+        // editor as a normal mouse-down — matching classic Notepad.
+        return MA_ACTIVATE;
     case WM_MOUSEWHEEL:
     {
+        int delta = GET_WHEEL_DELTA_WPARAM(wParam);
         if (LOWORD(wParam) & MK_SHIFT)
         {
-            int delta = GET_WHEEL_DELTA_WPARAM(wParam);
             UINT scrollLines = 3;
             SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0, &scrollLines, 0);
             if (scrollLines == (UINT)WHEEL_PAGESCROLL)
@@ -566,7 +910,22 @@ LRESULT CALLBACK EditorSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             }
             return 0;
         }
-        break;
+        if (GetKeyState(VK_CONTROL) & 0x8000)
+            break;
+        // Replace RichEdit's animated smooth-scroll with discrete line
+        // steps so the wheel feels like classic Edit-control Notepad.
+        UINT scrollLines = 3;
+        SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0, &scrollLines, 0);
+        if (scrollLines == (UINT)WHEEL_PAGESCROLL)
+        {
+            SendMessageW(hwnd, WM_VSCROLL, (delta > 0) ? SB_PAGEUP : SB_PAGEDOWN, 0);
+        }
+        else
+        {
+            for (UINT i = 0; i < scrollLines; ++i)
+                SendMessageW(hwnd, WM_VSCROLL, (delta > 0) ? SB_LINEUP : SB_LINEDOWN, 0);
+        }
+        return 0;
     }
     case WM_MOUSEHWHEEL:
     {
@@ -615,6 +974,30 @@ LRESULT CALLBACK EditorSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         EnableMenuItem(hMenu, IDM_EDIT_COPY, MF_BYCOMMAND | (hasSelection ? MF_ENABLED : MF_GRAYED));
         EnableMenuItem(hMenu, IDM_EDIT_PASTE, MF_BYCOMMAND | (canPaste ? MF_ENABLED : MF_GRAYED));
         EnableMenuItem(hMenu, IDM_EDIT_DELETE, MF_BYCOMMAND | (hasSelection ? MF_ENABLED : MF_GRAYED));
+
+        // Mirror the Tools menu as a submenu, but only when the user has
+        // turned Tools on — otherwise the context menu stays minimal.
+        // DestroyMenu(hMenu) below recursively frees this submenu too.
+        if (g_state.toolsEnabled)
+        {
+            HMENU hTools = CreatePopupMenu();
+            AppendMenuW(hTools, MF_STRING, IDM_TOOLS_NORMALIZE, lang.menuToolsNormalize.c_str());
+            AppendMenuW(hTools, MF_STRING, IDM_TOOLS_BASE64, lang.menuToolsBase64.c_str());
+            AppendMenuW(hTools, MF_STRING, IDM_TOOLS_SHA1, lang.menuToolsSha1.c_str());
+            AppendMenuW(hTools, MF_STRING, IDM_TOOLS_MD5, lang.menuToolsMd5.c_str());
+            AppendMenuW(hTools, MF_SEPARATOR, 0, nullptr);
+            AppendMenuW(hTools, MF_STRING, IDM_TOOLS_UPPERCASE, lang.menuToolsUppercase.c_str());
+            AppendMenuW(hTools, MF_STRING, IDM_TOOLS_LOWERCASE, lang.menuToolsLowercase.c_str());
+            AppendMenuW(hTools, MF_STRING, IDM_TOOLS_TITLECASE, lang.menuToolsTitleCase.c_str());
+            AppendMenuW(hTools, MF_STRING, IDM_TOOLS_TRIMTRAILING, lang.menuToolsTrimTrailing.c_str());
+            AppendMenuW(hTools, MF_STRING, IDM_TOOLS_TABS2SPACES, lang.menuToolsTabsToSpaces.c_str());
+            AppendMenuW(hTools, MF_STRING, IDM_TOOLS_SPACES2TABS, lang.menuToolsSpacesToTabs.c_str());
+            AppendMenuW(hTools, MF_SEPARATOR, 0, nullptr);
+            AppendMenuW(hTools, MF_STRING, IDM_TOOLS_REVERSELINES, lang.menuToolsReverseLines.c_str());
+            AppendMenuW(hTools, MF_STRING, IDM_TOOLS_JOINLINES, lang.menuToolsJoinLines.c_str());
+            AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
+            AppendMenuW(hMenu, MF_POPUP, reinterpret_cast<UINT_PTR>(hTools), lang.menuTools.c_str());
+        }
 
         int cmd = TrackPopupMenu(hMenu, TPM_RETURNCMD | TPM_RIGHTBUTTON, pt.x, pt.y, 0, g_hwndMain, nullptr);
         DestroyMenu(hMenu);

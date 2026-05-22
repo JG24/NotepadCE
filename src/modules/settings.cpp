@@ -312,7 +312,7 @@ static void DoLoad()
     if (op > 0 && op <= 255) g_state.windowOpacity = static_cast<BYTE>(op);
 
     int t = obj.getInt("theme", static_cast<int>(g_state.theme));
-    if (t >= 0 && t <= 2) g_state.theme = static_cast<Theme>(t);
+    if (t >= 0 && t <= 3) g_state.theme = static_cast<Theme>(t); // 0..3 = System/Light/Dark/Matrix
 
     std::wstring df = obj.getStr("dateTimeFormat");
     if (!df.empty())
@@ -333,7 +333,7 @@ static void DoLoad()
         g_state.recentFiles.push_back(f);
 
     int langVal = obj.getInt("language", -1);
-    if (langVal >= 0 && langVal <= 2)
+    if (langVal >= 0 && langVal <= 7) // 0..7 = EN/JA/PL/DE/CS/UK/LT/RU
         SetLanguage(static_cast<LangID>(langVal));
 
     RECT rc = {g_state.windowX, g_state.windowY,

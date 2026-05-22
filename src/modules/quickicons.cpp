@@ -254,9 +254,14 @@ void DrawQuickIconItem(const DRAWITEMSTRUCT *dis)
     bool dark = IsDarkMode();
     bool hot = (dis->itemState & (ODS_SELECTED | ODS_HOTLIGHT)) != 0;
 
+    // Hover tint only in light mode — in dark mode the lighter shade
+    // sticks on icons the cursor passed over because Win11 doesn't
+    // reliably re-fire WM_DRAWITEM on hover-end. Light mode's hover
+    // shade is handled natively by Windows so persists / clears
+    // correctly.
     COLORREF bg = dark ? RGB(45, 45, 45) : GetSysColor(COLOR_MENU);
-    if (hot)
-        bg = dark ? RGB(70, 70, 70) : RGB(220, 220, 220);
+    if (hot && !dark)
+        bg = RGB(220, 220, 220);
 
     HBRUSH hbr = CreateSolidBrush(bg);
     FillRect(dis->hDC, &dis->rcItem, hbr);

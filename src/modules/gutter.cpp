@@ -81,8 +81,22 @@ static LRESULT CALLBACK GutterWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
         GetClientRect(hwnd, &rc);
 
         bool dark = IsDarkMode();
-        COLORREF bg = dark ? RGB(35, 35, 35) : RGB(240, 240, 240);
-        COLORREF fg = dark ? RGB(140, 140, 140) : RGB(120, 120, 120);
+        COLORREF bg, fg;
+        if (IsMatrixTheme())
+        {
+            bg = RGB(4, 14, 4);
+            fg = RGB(50, 160, 65);
+        }
+        else if (dark)
+        {
+            bg = RGB(35, 35, 35);
+            fg = RGB(140, 140, 140);
+        }
+        else
+        {
+            bg = RGB(240, 240, 240);
+            fg = RGB(120, 120, 120);
+        }
         HBRUSH hbr = CreateSolidBrush(bg);
         FillRect(hdc, &rc, hbr);
         DeleteObject(hbr);

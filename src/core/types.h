@@ -50,7 +50,8 @@ enum class Theme
 {
     System,
     Light,
-    Dark
+    Dark,
+    Matrix
 };
 enum PreferredAppMode
 {

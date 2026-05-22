@@ -61,7 +61,11 @@ BEGIN
         MENUITEM "&Restore Default Zoom\tCtrl+0", IDM_VIEW_ZOOMDEFAULT
         MENUITEM SEPARATOR
         MENUITEM "&Status Bar", IDM_VIEW_STATUSBAR, CHECKED
-        MENUITEM "&Dark Mode", IDM_VIEW_DARKMODE
+        MENUITEM SEPARATOR
+        MENUITEM "&Light", IDM_VIEW_THEME_LIGHT
+        MENUITEM "&Dark", IDM_VIEW_THEME_DARK
+        MENUITEM "&Matrix", IDM_VIEW_THEME_MATRIX
+        MENUITEM SEPARATOR
         MENUITEM "Show S&pecial Characters", IDM_VIEW_SHOWSPECIAL
         MENUITEM "Line &Numbers", IDM_VIEW_LINENUMBERS
         POPUP "&Language"
@@ -69,6 +73,11 @@ BEGIN
             MENUITEM "&English", IDM_VIEW_LANG_EN
             MENUITEM "&Polish", IDM_VIEW_LANG_PL
             MENUITEM "&Japanese", IDM_VIEW_LANG_JA
+            MENUITEM "&German", IDM_VIEW_LANG_DE
+            MENUITEM "&Czech", IDM_VIEW_LANG_CS
+            MENUITEM "&Ukrainian", IDM_VIEW_LANG_UK
+            MENUITEM "L&ithuanian", IDM_VIEW_LANG_LT
+            MENUITEM "&Russian", IDM_VIEW_LANG_RU
         END
         MENUITEM SEPARATOR
         MENUITEM "Window &Transparency...", IDM_VIEW_TRANSPARENCY
@@ -80,6 +89,16 @@ BEGIN
         MENUITEM "&Base64", IDM_TOOLS_BASE64
         MENUITEM "&SHA1", IDM_TOOLS_SHA1
         MENUITEM "&MD5", IDM_TOOLS_MD5
+        MENUITEM SEPARATOR
+        MENUITEM "&UPPERCASE", IDM_TOOLS_UPPERCASE
+        MENUITEM "&lowercase", IDM_TOOLS_LOWERCASE
+        MENUITEM "&Title Case", IDM_TOOLS_TITLECASE
+        MENUITEM "Trim Trailing &Whitespace", IDM_TOOLS_TRIMTRAILING
+        MENUITEM "Tabs to &Spaces", IDM_TOOLS_TABS2SPACES
+        MENUITEM "Spaces to Ta&bs", IDM_TOOLS_SPACES2TABS
+        MENUITEM SEPARATOR
+        MENUITEM "&Reverse Lines", IDM_TOOLS_REVERSELINES
+        MENUITEM "&Join Lines", IDM_TOOLS_JOINLINES
     END
     POPUP "&Help"
     BEGIN

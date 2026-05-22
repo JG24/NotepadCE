@@ -42,6 +42,24 @@
 
 static bool g_ncMouseTracking = false;
 
+// Switch UI language. Drops the modeless Find dialog first (its child
+// controls were created with the old language's labels), then applies
+// the new strings and rebuilds the menus, title and status bar.
+static void ChangeLanguage(LangID lang)
+{
+    if (g_hwndFindDlg)
+    {
+        DestroyWindow(g_hwndFindDlg);
+        g_hwndFindDlg = nullptr;
+    }
+    SetLanguage(lang);
+    UpdateMenuStrings();
+    UpdateRecentFilesMenu();
+    UpdateLanguageMenu();
+    UpdateTitle();
+    UpdateStatus();
+}
+
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     if (g_msgFindReplace && msg == g_msgFindReplace)
@@ -98,6 +116,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         UpdateLanguageMenu();
         UpdateToolsMenuVisibility();
         UpdateQuickIconsVisibility();
+        UpdateRecentFilesMenu();
         if (g_state.alwaysOnTop)
             SetWindowPos(g_hwndMain, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
         if (g_state.windowOpacity != 255)
@@ -158,10 +177,15 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             mii.dwTypeData = szText;
             mii.cch = 255;
             GetMenuItemInfoW(pUDMI->um.hMenu, pUDMI->umi.iPosition, TRUE, &mii);
+            // Defence in depth. WM_UAHDRAWMENUITEM doesn't actually fire
+            // for menu bar items on current Win11 builds (Microsoft
+            // changed that undocumented path), which is why this whole
+            // case is effectively dead and the real painting happens via
+            // owner-drawn items + WM_DRAWITEM (see menu.cpp). Left here
+            // in case the message ever does come through on older builds
+            // or a quirky configuration.
             COLORREF bgColor = RGB(45, 45, 45);
             COLORREF textColor = RGB(255, 255, 255);
-            if ((pUDMI->dis.itemState & ODS_HOTLIGHT) || (pUDMI->dis.itemState & ODS_SELECTED))
-                bgColor = RGB(65, 65, 65);
             HBRUSH hbr = CreateSolidBrush(bgColor);
             FillRect(pUDMI->um.hdc, &pUDMI->dis.rcItem, hbr);
             DeleteObject(hbr);
@@ -211,22 +235,35 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     RECT rcItem;
                     if (GetMenuBarInfo(hwnd, OBJID_MENU, i + 1, &mbi))
                     {
-                        // Skip owner-drawn items (the quick-access icons) —
-                        // they get WM_DRAWITEM instead and we must not paint
-                        // text over them here.
+                        // Owner-drawn items: dispatch by their wID range.
+                        // After EnableOwnerDrawMenuBar(true) every top-level
+                        // popup is MFT_OWNERDRAW with an IDM_TOPLEVEL_*
+                        // synthetic ID, and the quick icons keep their
+                        // IDM_QUICK_* IDs. WM_DRAWITEM fires for these later
+                        // anyway, but we re-paint here so the menu bar isn't
+                        // momentarily blank after our FillRect wiped it.
+                        //
+                        // GOTCHA: GetMenuItemID() returns (UINT)-1 for any
+                        // item that opens a submenu, regardless of what we
+                        // set via SetMenuItemInfoW(MIIM_ID). To recover the
+                        // real wID we set on those popups, read it back
+                        // through MENUITEMINFOW.wID with the MIIM_ID flag.
                         MENUITEMINFOW miiType = {};
                         miiType.cbSize = sizeof(miiType);
-                        miiType.fMask = MIIM_FTYPE;
+                        miiType.fMask = MIIM_FTYPE | MIIM_ID;
                         if (GetMenuItemInfoW(hMenu, i, TRUE, &miiType) &&
                             (miiType.fType & MFT_OWNERDRAW))
                         {
                             DRAWITEMSTRUCT dis = {};
                             dis.CtlType = ODT_MENU;
-                            dis.itemID = GetMenuItemID(hMenu, i);
+                            dis.itemID = miiType.wID;
                             dis.hDC = hdc;
                             dis.rcItem = mbi.rcBar;
                             OffsetRect(&dis.rcItem, -rcWindow.left, -rcWindow.top);
-                            DrawQuickIconItem(&dis);
+                            if (IsQuickIconId(dis.itemID))
+                                DrawQuickIconItem(&dis);
+                            else if (IsTopLevelMenuItemId(dis.itemID))
+                                DrawTopLevelMenuItem(&dis);
                             continue;
                         }
                         rcItem = mbi.rcBar;
@@ -253,6 +290,26 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         if (lParam && wcscmp(reinterpret_cast<LPCWSTR>(lParam), L"ImmersiveColorSet") == 0)
             ApplyTheme();
         return 0;
+    }
+    case WM_MENU_REMEASURE:
+    {
+        // The first WM_DRAWITEM has just learned the hidden gutter
+        // Windows adds to owner-drawn menu item widths. Rebuild the bar
+        // so every item gets re-measured with the correction applied.
+        if (IsDarkMode())
+            EnableOwnerDrawMenuBar(hwnd, true);
+        return 0;
+    }
+    case WM_EXITMENULOOP:
+    {
+        // When a submenu was opened, Win11 puts the menu bar into a
+        // "navigation mode" that paints other items via a system path
+        // bypassing WM_UAHDRAWMENU* — leaving them in light-theme hover
+        // colours that stick around after the submenu closes. Force a
+        // full NC repaint here so our dark paint reasserts itself.
+        if (IsDarkMode())
+            RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_FRAME);
+        break;
     }
     case WM_NCMOUSEMOVE:
     {
@@ -338,20 +395,38 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_MEASUREITEM:
     {
         LPMEASUREITEMSTRUCT pMIS = reinterpret_cast<LPMEASUREITEMSTRUCT>(lParam);
-        if (pMIS->CtlType == ODT_MENU && IsQuickIconId(static_cast<UINT>(pMIS->itemID)))
+        if (pMIS->CtlType == ODT_MENU)
         {
-            MeasureQuickIconItem(pMIS);
-            return TRUE;
+            UINT id = static_cast<UINT>(pMIS->itemID);
+            if (IsQuickIconId(id))
+            {
+                MeasureQuickIconItem(pMIS);
+                return TRUE;
+            }
+            if (IsTopLevelMenuItemId(id))
+            {
+                MeasureTopLevelMenuItem(pMIS);
+                return TRUE;
+            }
         }
         break;
     }
     case WM_DRAWITEM:
     {
         LPDRAWITEMSTRUCT pDIS = reinterpret_cast<LPDRAWITEMSTRUCT>(lParam);
-        if (pDIS->CtlType == ODT_MENU && IsQuickIconId(static_cast<UINT>(pDIS->itemID)))
+        if (pDIS->CtlType == ODT_MENU)
         {
-            DrawQuickIconItem(pDIS);
-            return TRUE;
+            UINT id = static_cast<UINT>(pDIS->itemID);
+            if (IsQuickIconId(id))
+            {
+                DrawQuickIconItem(pDIS);
+                return TRUE;
+            }
+            if (IsTopLevelMenuItemId(id))
+            {
+                DrawTopLevelMenuItem(pDIS);
+                return TRUE;
+            }
         }
         if (pDIS->hwndItem == g_hwndStatus && IsDarkMode())
         {
@@ -491,8 +566,14 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         case IDM_VIEW_STATUSBAR:
             ViewStatusBar();
             break;
-        case IDM_VIEW_DARKMODE:
-            ToggleDarkMode();
+        case IDM_VIEW_THEME_LIGHT:
+            SetThemeChoice(Theme::Light);
+            break;
+        case IDM_VIEW_THEME_DARK:
+            SetThemeChoice(Theme::Dark);
+            break;
+        case IDM_VIEW_THEME_MATRIX:
+            SetThemeChoice(Theme::Matrix);
             break;
         case IDM_VIEW_TRANSPARENCY:
             ViewTransparency();
@@ -563,41 +644,53 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         case IDM_TOOLS_MD5:
             ToolsMd5();
             break;
+        case IDM_TOOLS_UPPERCASE:
+            ToolsUppercase();
+            break;
+        case IDM_TOOLS_LOWERCASE:
+            ToolsLowercase();
+            break;
+        case IDM_TOOLS_TITLECASE:
+            ToolsTitleCase();
+            break;
+        case IDM_TOOLS_TRIMTRAILING:
+            ToolsTrimTrailing();
+            break;
+        case IDM_TOOLS_TABS2SPACES:
+            ToolsTabsToSpaces();
+            break;
+        case IDM_TOOLS_SPACES2TABS:
+            ToolsSpacesToTabs();
+            break;
+        case IDM_TOOLS_REVERSELINES:
+            ToolsReverseLines();
+            break;
+        case IDM_TOOLS_JOINLINES:
+            ToolsJoinLines();
+            break;
         case IDM_VIEW_LANG_EN:
-            if (g_hwndFindDlg)
-            {
-                DestroyWindow(g_hwndFindDlg);
-                g_hwndFindDlg = nullptr;
-            }
-            SetLanguage(LangID::EN);
-            UpdateMenuStrings();
-            UpdateLanguageMenu();
-            UpdateTitle();
-            UpdateStatus();
+            ChangeLanguage(LangID::EN);
             break;
         case IDM_VIEW_LANG_JA:
-            if (g_hwndFindDlg)
-            {
-                DestroyWindow(g_hwndFindDlg);
-                g_hwndFindDlg = nullptr;
-            }
-            SetLanguage(LangID::JA);
-            UpdateMenuStrings();
-            UpdateLanguageMenu();
-            UpdateTitle();
-            UpdateStatus();
+            ChangeLanguage(LangID::JA);
             break;
         case IDM_VIEW_LANG_PL:
-            if (g_hwndFindDlg)
-            {
-                DestroyWindow(g_hwndFindDlg);
-                g_hwndFindDlg = nullptr;
-            }
-            SetLanguage(LangID::PL);
-            UpdateMenuStrings();
-            UpdateLanguageMenu();
-            UpdateTitle();
-            UpdateStatus();
+            ChangeLanguage(LangID::PL);
+            break;
+        case IDM_VIEW_LANG_DE:
+            ChangeLanguage(LangID::DE);
+            break;
+        case IDM_VIEW_LANG_CS:
+            ChangeLanguage(LangID::CS);
+            break;
+        case IDM_VIEW_LANG_UK:
+            ChangeLanguage(LangID::UK);
+            break;
+        case IDM_VIEW_LANG_LT:
+            ChangeLanguage(LangID::LT);
+            break;
+        case IDM_VIEW_LANG_RU:
+            ChangeLanguage(LangID::RU);
             break;
         case IDM_HELP_ABOUT:
             HelpAbout();

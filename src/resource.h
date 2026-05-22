@@ -18,6 +18,10 @@
 #define IDR_ACCEL 102
 #define IDI_NOTEPAD 103
 
+// Human-readable application version, shown in the About dialog. Keep in
+// sync with the VERSION in CMakeLists.txt and app.manifest.
+#define APP_VERSION L"0.8"
+
 #define IDC_EDITOR 1000
 #define IDC_STATUSBAR 1001
 
@@ -54,17 +58,26 @@
 #define IDM_VIEW_ZOOMOUT 40041
 #define IDM_VIEW_ZOOMDEFAULT 40042
 #define IDM_VIEW_STATUSBAR 40043
-#define IDM_VIEW_DARKMODE 40044
 #define IDM_VIEW_TRANSPARENCY 40045
 #define IDM_VIEW_ALWAYSONTOP 40046
 #define IDM_VIEW_SHOWSPECIAL 40047
 #define IDM_VIEW_LINENUMBERS 40048
+
+// Theme radio items in the View menu (Light / Dark / Matrix).
+#define IDM_VIEW_THEME_LIGHT 40050
+#define IDM_VIEW_THEME_DARK 40051
+#define IDM_VIEW_THEME_MATRIX 40052
 
 #define IDM_HELP_ABOUT 40080
 
 #define IDM_VIEW_LANG_EN 40090
 #define IDM_VIEW_LANG_JA 40091
 #define IDM_VIEW_LANG_PL 40092
+#define IDM_VIEW_LANG_DE 40093
+#define IDM_VIEW_LANG_CS 40094
+#define IDM_VIEW_LANG_UK 40095
+#define IDM_VIEW_LANG_LT 40096
+#define IDM_VIEW_LANG_RU 40097
 
 #define IDM_EDIT_SETTINGS 40023
 #define IDM_EDIT_SETTINGS_DATEFORMAT 40024
@@ -76,7 +89,21 @@
 #define IDM_TOOLS_BASE64 40201
 #define IDM_TOOLS_SHA1 40202
 #define IDM_TOOLS_MD5 40203
+#define IDM_TOOLS_UPPERCASE 40204
+#define IDM_TOOLS_LOWERCASE 40205
+#define IDM_TOOLS_TITLECASE 40206
+#define IDM_TOOLS_TRIMTRAILING 40207
+#define IDM_TOOLS_TABS2SPACES 40208
+#define IDM_TOOLS_SPACES2TABS 40209
+#define IDM_TOOLS_REVERSELINES 40210
+#define IDM_TOOLS_JOINLINES 40211
 
 #define IDM_QUICK_SPELLCHECK 40300
 #define IDM_QUICK_ONTOP 40301
 #define IDM_QUICK_DARKMODE 40302
+
+// Synthetic IDs for the top-level menu bar popups (Plik / Edycja / ...)
+// when they're converted to MFT_OWNERDRAW for dark-mode painting.
+// Position-based: IDM_TOPLEVEL_BASE + index_in_menu_bar.
+#define IDM_TOPLEVEL_BASE 50000
+#define IDM_TOPLEVEL_MAX  50031

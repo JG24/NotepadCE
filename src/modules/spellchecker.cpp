@@ -189,6 +189,13 @@ void ApplySpellingMarks()
     CHARRANGE oldRange;
     SendMessageW(g_hwndEditor, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&oldRange));
 
+    // EM_EXSETSEL on each error range nudges the viewport even with
+    // WM_SETREDRAW disabled — for long documents this manifests as the
+    // view sliding upward as the loop walks errors from top to bottom.
+    // Snapshot the scroll position so we can restore it at the end.
+    POINT scrollPos = {};
+    SendMessageW(g_hwndEditor, EM_GETSCROLLPOS, 0, reinterpret_cast<LPARAM>(&scrollPos));
+
     // Suppress EN_SELCHANGE / EN_CHANGE notifications during the bulk
     // format updates. Otherwise every EM_EXSETSEL call below fires an
     // EN_SELCHANGE, each of which triggers UpdateStatus() in main.cpp —
@@ -223,6 +230,7 @@ void ApplySpellingMarks()
     }
 
     SendMessageW(g_hwndEditor, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&oldRange));
+    SendMessageW(g_hwndEditor, EM_SETSCROLLPOS, 0, reinterpret_cast<LPARAM>(&scrollPos));
     SendMessageW(g_hwndEditor, WM_SETREDRAW, TRUE, 0);
     SendMessageW(g_hwndEditor, EM_SETEVENTMASK, 0, oldMask);
     InvalidateRect(g_hwndEditor, nullptr, TRUE);

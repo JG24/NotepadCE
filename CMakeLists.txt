@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(NotepadCE VERSION 0.1.0 LANGUAGES CXX)
+project(NotepadCE VERSION 0.8.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -35,6 +35,10 @@ if(MSVC)
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /SUBSYSTEM:WINDOWS /ENTRY:wWinMainCRTStartup")
 else()
     add_compile_options(-Wall -Wextra -municode -Wno-error=missing-field-initializers -finput-charset=UTF-8 -fexec-charset=UTF-8)
+    # Place each function/data item in its own section so the linker can
+    # drop everything unreferenced (--gc-sections below). A safe, no-ICE
+    # substitute for LTO, which is blocklisted on GCC 16.x above.
+    add_compile_options(-ffunction-sections -fdata-sections)
     if(LEGACY_NOTEPAD_WERROR)
         add_compile_options(-Werror)
     endif()
@@ -97,8 +101,24 @@ if(NOT MSVC)
     endif()
     # Strip during link instead of post-build: avoids a second file-write step
     # that AV/Defender real-time scanning frequently blocks on Windows.
-    target_link_options(NotepadCE PRIVATE -s)
+    # --gc-sections discards sections no longer referenced after linking.
+    target_link_options(NotepadCE PRIVATE -s -Wl,--gc-sections)
 endif()
+
+# Build timestamp — generates build_info.h (#define BUILD_NUMBER) used by
+# the About dialog. Generated once at configure time so the header exists,
+# then refreshed by a pre-build custom target so the value tracks each
+# actual compile. The script no-ops when the minute hasn't changed.
+execute_process(COMMAND ${CMAKE_COMMAND}
+                -DOUTPUT=${CMAKE_BINARY_DIR}/build_info.h
+                -P ${CMAKE_SOURCE_DIR}/gen_build_info.cmake)
+add_custom_target(generate_build_info
+    COMMAND ${CMAKE_COMMAND}
+            -DOUTPUT=${CMAKE_BINARY_DIR}/build_info.h
+            -P ${CMAKE_SOURCE_DIR}/gen_build_info.cmake
+    COMMENT "Refreshing build timestamp")
+add_dependencies(NotepadCE generate_build_info)
+target_include_directories(NotepadCE PRIVATE ${CMAKE_BINARY_DIR})
 
 # Installation
 install(TARGETS NotepadCE DESTINATION .)

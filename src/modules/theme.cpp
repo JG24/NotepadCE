@@ -21,6 +21,7 @@
 #include "core/globals.h"
 #include "resource.h"
 #include "settings.h"
+#include "menu.h"
 
 bool SetTitleBarDark(HWND hwnd, BOOL dark)
 {
@@ -54,7 +55,8 @@ bool SetTitleBarDark(HWND hwnd, BOOL dark)
 
 bool IsDarkMode()
 {
-    if (g_state.theme == Theme::Dark)
+    // Matrix is a dark theme as far as the window chrome is concerned.
+    if (g_state.theme == Theme::Dark || g_state.theme == Theme::Matrix)
         return true;
     if (g_state.theme == Theme::Light)
         return false;
@@ -70,6 +72,28 @@ bool IsDarkMode()
         RegCloseKey(hKey);
     }
     return false;
+}
+
+bool IsMatrixTheme()
+{
+    return g_state.theme == Theme::Matrix;
+}
+
+// Editor background. Matrix: near-black with a faint green cast. Dark:
+// the usual very-dark grey. Light: the system window colour.
+COLORREF GetEditorBgColor()
+{
+    if (g_state.theme == Theme::Matrix)
+        return RGB(6, 20, 6);
+    return IsDarkMode() ? RGB(30, 30, 30) : GetSysColor(COLOR_WINDOW);
+}
+
+// Editor text. Matrix: the classic bright phosphor green.
+COLORREF GetEditorTextColor()
+{
+    if (g_state.theme == Theme::Matrix)
+        return RGB(80, 245, 110);
+    return IsDarkMode() ? RGB(255, 255, 255) : GetSysColor(COLOR_WINDOWTEXT);
 }
 
 LRESULT CALLBACK StatusSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
@@ -181,8 +205,8 @@ void ApplyTheme()
     SetWindowTheme(g_hwndEditor, dark ? L"DarkMode_Explorer" : nullptr, nullptr);
     SetWindowTheme(g_hwndStatus, dark ? L"DarkMode_Explorer" : nullptr, nullptr);
     SetWindowTheme(g_hwndMain, dark ? L"DarkMode_Explorer" : nullptr, nullptr);
-    COLORREF bgColor = dark ? RGB(30, 30, 30) : GetSysColor(COLOR_WINDOW);
-    COLORREF textColor = dark ? RGB(255, 255, 255) : GetSysColor(COLOR_WINDOWTEXT);
+    COLORREF bgColor = GetEditorBgColor();
+    COLORREF textColor = GetEditorTextColor();
     SendMessageW(g_hwndEditor, EM_SETBKGNDCOLOR, 0, bgColor);
     CHARFORMAT2W cf = {};
     cf.cbSize = sizeof(cf);
@@ -204,7 +228,27 @@ void ApplyTheme()
     SendMessageW(g_hwndEditor, EM_SETCHARFORMAT, SCF_DEFAULT, reinterpret_cast<LPARAM>(&cf));
     SendMessageW(g_hwndEditor, EM_SETEVENTMASK, 0, oldMask);
     SendMessageW(g_hwndStatus, SB_SETBKCOLOR, 0, dark ? RGB(45, 45, 45) : CLR_DEFAULT);
-    CheckMenuItem(GetMenu(g_hwndMain), IDM_VIEW_DARKMODE, MF_BYCOMMAND | (dark ? MF_CHECKED : MF_UNCHECKED));
+    // Tick the active theme in the View menu's Light/Dark/Matrix radio
+    // group. theme==System resolves via the registry to Light or Dark.
+    {
+        UINT activeId = IDM_VIEW_THEME_LIGHT;
+        if (g_state.theme == Theme::Matrix)
+            activeId = IDM_VIEW_THEME_MATRIX;
+        else if (g_state.theme == Theme::Dark)
+            activeId = IDM_VIEW_THEME_DARK;
+        else if (g_state.theme == Theme::Light)
+            activeId = IDM_VIEW_THEME_LIGHT;
+        else // System
+            activeId = dark ? IDM_VIEW_THEME_DARK : IDM_VIEW_THEME_LIGHT;
+        HMENU hViewMenu = GetSubMenu(GetMenu(g_hwndMain), 3);
+        if (hViewMenu)
+            CheckMenuRadioItem(hViewMenu, IDM_VIEW_THEME_LIGHT, IDM_VIEW_THEME_MATRIX,
+                               activeId, MF_BYCOMMAND);
+    }
+    // Flip top-level menu bar popups to MFT_OWNERDRAW in dark mode (so
+    // WM_DRAWITEM paints them — Win11 stopped honouring the legacy UAH
+    // path) and revert to regular system painting in light mode.
+    EnableOwnerDrawMenuBar(g_hwndMain, dark);
     InvalidateRect(g_hwndEditor, nullptr, TRUE);
     InvalidateRect(g_hwndStatus, nullptr, TRUE);
     InvalidateRect(g_hwndMain, nullptr, TRUE);
@@ -215,7 +259,17 @@ void ApplyTheme()
 
 void ToggleDarkMode()
 {
+    // Quick-access icon toggle: flips between Light and Dark. From Matrix
+    // it lands on Light (IsDarkMode() is true for Matrix). Matrix itself
+    // is only reachable through the View menu.
     g_state.theme = IsDarkMode() ? Theme::Light : Theme::Dark;
+    ApplyTheme();
+    SaveSettings();
+}
+
+void SetThemeChoice(Theme t)
+{
+    g_state.theme = t;
     ApplyTheme();
     SaveSettings();
 }

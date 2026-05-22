@@ -21,6 +21,7 @@
 #include "gutter.h"
 #include <commctrl.h>
 #include <shlwapi.h>
+#include <richedit.h>
 
 void UpdateTitle()
 {
@@ -41,7 +42,16 @@ void UpdateStatus()
     auto [line, col] = GetCursorPos();
     const auto &lang = GetLangStrings();
 
-    int chars = static_cast<int>(SendMessageW(g_hwndEditor, WM_GETTEXTLENGTH, 0, 0));
+    // WM_GETTEXTLENGTH on a RichEdit returns a CRLF-based estimate, so a
+    // lone internal '\r' line break counts as two. That clashes with the
+    // selection / line / column readouts, which all use the control's
+    // CR-only model. GTL_NUMCHARS counts the real internal characters, so
+    // every readout agrees (and a line break counts as one, like Notepad).
+    GETTEXTLENGTHEX gtl;
+    gtl.flags = GTL_NUMCHARS | GTL_PRECISE;
+    gtl.codepage = 1200; // UTF-16
+    int chars = static_cast<int>(SendMessageW(g_hwndEditor, EM_GETTEXTLENGTHEX,
+                                              reinterpret_cast<WPARAM>(&gtl), 0));
     int totalLines = static_cast<int>(SendMessageW(g_hwndEditor, EM_GETLINECOUNT, 0, 0));
 
     DWORD selStart = 0, selEnd = 0;

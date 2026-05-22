@@ -21,6 +21,7 @@
 #include "settings.h"
 #include "resource.h"
 #include "lang/lang.h"
+#include "build_info.h"
 #include <commdlg.h>
 #include <commctrl.h>
 #include <richedit.h>
@@ -699,17 +700,28 @@ static LRESULT CALLBACK AboutDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM 
     case WM_NOTIFY:
     {
         NMHDR *nm = reinterpret_cast<NMHDR *>(lParam);
-        if ((nm->code == NM_CLICK || nm->code == NM_RETURN) && nm->idFrom == 1001)
+        if (nm->code == NM_CLICK || nm->code == NM_RETURN)
         {
-            ShellExecuteW(hDlg, L"open",
-                          L"https://github.com/forloopcodes/legacy-notepad",
-                          nullptr, nullptr, SW_SHOWNORMAL);
-            return 0;
+            // 1002 = this fork's repo (Marek / JG24), 1001 = the original.
+            if (nm->idFrom == 1002)
+            {
+                ShellExecuteW(hDlg, L"open",
+                              L"https://github.com/JG24/NotepadCE",
+                              nullptr, nullptr, SW_SHOWNORMAL);
+                return 0;
+            }
+            if (nm->idFrom == 1001)
+            {
+                ShellExecuteW(hDlg, L"open",
+                              L"https://github.com/forloopcodes/legacy-notepad",
+                              nullptr, nullptr, SW_SHOWNORMAL);
+                return 0;
+            }
         }
         // SysLink uses the system link color (~RGB(0,102,204)) which on the
         // dark dialog background blends in to the point of invisibility.
         // Override via custom-draw with a brighter blue.
-        if (nm->code == NM_CUSTOMDRAW && nm->idFrom == 1001 && IsDarkMode())
+        if (nm->code == NM_CUSTOMDRAW && (nm->idFrom == 1001 || nm->idFrom == 1002) && IsDarkMode())
         {
             NMCUSTOMDRAW *cd = reinterpret_cast<NMCUSTOMDRAW *>(lParam);
             if (cd->dwDrawStage == CDDS_PREPAINT)
@@ -754,7 +766,7 @@ void HelpAbout()
     }
     const auto &lang = GetLangStrings();
 
-    const int W = 500, H = 280;
+    const int W = 500, H = 320;
     const int PAD = 24;
     HWND hDlg = CreateAppDialog(lang.aboutTitle.c_str(), W, H);
     if (!hDlg)
@@ -764,7 +776,7 @@ void HelpAbout()
     const int SEP_GAP = 14;
     int y = PAD;
 
-    // Section 1: tagline + author
+    // Section 1: tagline + author + this fork's repository link
     CreateWindowExW(0, L"STATIC", lang.aboutTagline.c_str(),
                     WS_CHILD | WS_VISIBLE,
                     PAD, y, W - PAD * 2, LINE_H, hDlg, nullptr, nullptr, nullptr);
@@ -772,6 +784,14 @@ void HelpAbout()
     CreateWindowExW(0, L"STATIC", lang.aboutAuthor.c_str(),
                     WS_CHILD | WS_VISIBLE,
                     PAD, y, W - PAD * 2, LINE_H, hDlg, nullptr, nullptr, nullptr);
+    y += LINE_H + 2;
+    // LWS_USECUSTOMTEXT (0x0008) tells SysLink to honour WM_SETFONT.
+    // Control id 1002 = this fork's repository (handled in AboutDlgProc).
+    CreateWindowExW(0, L"SysLink",
+                    L"<A HREF=\"https://github.com/JG24/NotepadCE\">https://github.com/JG24/NotepadCE</A>",
+                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | 0x0008,
+                    PAD, y, W - PAD * 2, LINE_H,
+                    hDlg, reinterpret_cast<HMENU>(1002), nullptr, nullptr);
     y += LINE_H + SEP_GAP;
 
     // Separator
@@ -793,11 +813,6 @@ void HelpAbout()
                     WS_CHILD | WS_VISIBLE,
                     PAD, y, W - PAD * 2, LINE_H, hDlg, nullptr, nullptr, nullptr);
     y += LINE_H + 2;
-    // LWS_USECUSTOMTEXT (0x0008) tells SysLink to respect the font set via
-    // WM_SETFONT. Without it the control uses its built-in default font on
-    // first paint — a Windows quirk where minimize+restore happens to force
-    // a full repaint that then picks up our font, but the initial render
-    // doesn't.
     CreateWindowExW(0, L"SysLink",
                     L"<A HREF=\"https://github.com/forloopcodes/legacy-notepad\">https://github.com/forloopcodes/legacy-notepad</A>",
                     WS_CHILD | WS_VISIBLE | WS_TABSTOP | 0x0008,
@@ -810,6 +825,14 @@ void HelpAbout()
                     WS_CHILD | WS_VISIBLE | SS_ETCHEDHORZ,
                     PAD, y, W - PAD * 2, 2, hDlg, nullptr, nullptr, nullptr);
     y += SEP_GAP;
+
+    // Build number, left-aligned, just above the OK button:
+    // "<label> YYYYMMDDHHMM".
+    std::wstring buildLine = L"NotepadCE " APP_VERSION L"   " + lang.aboutBuild + L" " + BUILD_NUMBER;
+    CreateWindowExW(0, L"STATIC", buildLine.c_str(),
+                    WS_CHILD | WS_VISIBLE,
+                    PAD, y, W - PAD * 2, LINE_H, hDlg, nullptr, nullptr, nullptr);
+    y += LINE_H + SEP_GAP;
 
     // OK button centered
     const int btnW = 96, btnH = 28;

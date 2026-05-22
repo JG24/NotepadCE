@@ -16,6 +16,7 @@
 #include <bcrypt.h>
 #include <string>
 #include <vector>
+#include <algorithm>
 
 #ifndef BCRYPT_SHA1_ALGORITHM
 #define BCRYPT_SHA1_ALGORITHM L"SHA1"
@@ -314,6 +315,230 @@ void ToolsMd5()
     std::wstring hash = HashHex(BCRYPT_MD5_ALGORITHM, bytes);
     if (!hash.empty())
         ReplaceTargetText(hash, wasSelection);
+}
+
+// ---------- Text transforms ------------------------------------------------
+//
+// All of these route their result through ReplaceTargetText, which feeds
+// EM_REPLACESEL. RichEdit treats a lone CR as a paragraph break, so a
+// stray "\r\n" pair would produce a blank line — every transform below
+// emits CR-only line endings (NormalizeCR / JoinWithCR) to avoid that.
+
+static const int kTabWidth = 4;
+
+// Replace CRLF and lone LF with a single CR.
+static std::wstring NormalizeCR(const std::wstring &text)
+{
+    std::wstring out;
+    out.reserve(text.size());
+    for (size_t i = 0; i < text.size(); ++i)
+    {
+        wchar_t c = text[i];
+        if (c == L'\r')
+        {
+            out.push_back(L'\r');
+            if (i + 1 < text.size() && text[i + 1] == L'\n')
+                ++i;
+        }
+        else if (c == L'\n')
+            out.push_back(L'\r');
+        else
+            out.push_back(c);
+    }
+    return out;
+}
+
+// Split on CRLF / CR / LF. Always yields at least one element.
+static std::vector<std::wstring> SplitLines(const std::wstring &text)
+{
+    std::vector<std::wstring> lines;
+    std::wstring cur;
+    for (size_t i = 0; i < text.size(); ++i)
+    {
+        wchar_t c = text[i];
+        if (c == L'\r')
+        {
+            lines.push_back(cur);
+            cur.clear();
+            if (i + 1 < text.size() && text[i + 1] == L'\n')
+                ++i;
+        }
+        else if (c == L'\n')
+        {
+            lines.push_back(cur);
+            cur.clear();
+        }
+        else
+            cur.push_back(c);
+    }
+    lines.push_back(cur);
+    return lines;
+}
+
+static std::wstring JoinWithCR(const std::vector<std::wstring> &lines)
+{
+    std::wstring out;
+    for (size_t i = 0; i < lines.size(); ++i)
+    {
+        if (i)
+            out.push_back(L'\r');
+        out += lines[i];
+    }
+    return out;
+}
+
+void ToolsUppercase()
+{
+    bool wasSelection = false;
+    std::wstring text = NormalizeCR(GetTargetText(&wasSelection));
+    if (text.empty())
+        return;
+    CharUpperBuffW(text.data(), static_cast<DWORD>(text.size()));
+    ReplaceTargetText(text, wasSelection);
+}
+
+void ToolsLowercase()
+{
+    bool wasSelection = false;
+    std::wstring text = NormalizeCR(GetTargetText(&wasSelection));
+    if (text.empty())
+        return;
+    CharLowerBuffW(text.data(), static_cast<DWORD>(text.size()));
+    ReplaceTargetText(text, wasSelection);
+}
+
+void ToolsTitleCase()
+{
+    bool wasSelection = false;
+    std::wstring text = NormalizeCR(GetTargetText(&wasSelection));
+    if (text.empty())
+        return;
+    bool atWordStart = true;
+    for (wchar_t &ch : text)
+    {
+        if (IsCharAlphaW(ch))
+        {
+            wchar_t c = ch;
+            if (atWordStart)
+                CharUpperBuffW(&c, 1);
+            else
+                CharLowerBuffW(&c, 1);
+            ch = c;
+            atWordStart = false;
+        }
+        else if (ch == L'\'' || ch == L'’')
+        {
+            // Apostrophe inside a word ("don't") — not a word boundary.
+        }
+        else
+            atWordStart = true;
+    }
+    ReplaceTargetText(text, wasSelection);
+}
+
+void ToolsTrimTrailing()
+{
+    bool wasSelection = false;
+    std::wstring text = GetTargetText(&wasSelection);
+    if (text.empty())
+        return;
+    auto lines = SplitLines(text);
+    for (auto &ln : lines)
+    {
+        size_t end = ln.find_last_not_of(L" \t");
+        if (end == std::wstring::npos)
+            ln.clear();
+        else
+            ln.erase(end + 1);
+    }
+    ReplaceTargetText(JoinWithCR(lines), wasSelection);
+}
+
+void ToolsTabsToSpaces()
+{
+    bool wasSelection = false;
+    std::wstring text = GetTargetText(&wasSelection);
+    if (text.empty())
+        return;
+    auto lines = SplitLines(text);
+    for (auto &ln : lines)
+    {
+        std::wstring out;
+        out.reserve(ln.size());
+        int col = 0;
+        for (wchar_t c : ln)
+        {
+            if (c == L'\t')
+            {
+                int n = kTabWidth - (col % kTabWidth);
+                out.append(static_cast<size_t>(n), L' ');
+                col += n;
+            }
+            else
+            {
+                out.push_back(c);
+                ++col;
+            }
+        }
+        ln = out;
+    }
+    ReplaceTargetText(JoinWithCR(lines), wasSelection);
+}
+
+void ToolsSpacesToTabs()
+{
+    bool wasSelection = false;
+    std::wstring text = GetTargetText(&wasSelection);
+    if (text.empty())
+        return;
+    auto lines = SplitLines(text);
+    for (auto &ln : lines)
+    {
+        size_t sp = 0;
+        while (sp < ln.size() && ln[sp] == L' ')
+            ++sp;
+        if (sp >= static_cast<size_t>(kTabWidth))
+        {
+            std::wstring lead(sp / kTabWidth, L'\t');
+            lead.append(sp % kTabWidth, L' ');
+            ln = lead + ln.substr(sp);
+        }
+    }
+    ReplaceTargetText(JoinWithCR(lines), wasSelection);
+}
+
+void ToolsReverseLines()
+{
+    bool wasSelection = false;
+    std::wstring text = GetTargetText(&wasSelection);
+    if (text.empty())
+        return;
+    auto lines = SplitLines(text);
+    std::reverse(lines.begin(), lines.end());
+    ReplaceTargetText(JoinWithCR(lines), wasSelection);
+}
+
+void ToolsJoinLines()
+{
+    bool wasSelection = false;
+    std::wstring text = GetTargetText(&wasSelection);
+    if (text.empty())
+        return;
+    auto lines = SplitLines(text);
+    if (lines.size() < 2)
+        return; // nothing to join
+    std::wstring out;
+    for (auto &ln : lines)
+    {
+        size_t first = ln.find_first_not_of(L" \t");
+        if (first == std::wstring::npos)
+            continue; // skip blank lines
+        size_t last = ln.find_last_not_of(L" \t");
+        if (!out.empty())
+            out.push_back(L' ');
+        out.append(ln, first, last - first + 1);
+    }
+    ReplaceTargetText(out, wasSelection);
 }
 
 // ---------- Top-level "Tools" menu visibility -----------------------------

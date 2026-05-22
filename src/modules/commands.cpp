@@ -23,6 +23,7 @@
 #include "lang/lang.h"
 #include <commdlg.h>
 #include <shlwapi.h>
+#include <richedit.h>
 #include <ctime>
 #include <vector>
 
@@ -179,7 +180,7 @@ void FilePageSetup()
 }
 
 void EditUndo() { SendMessageW(g_hwndEditor, EM_UNDO, 0, 0); }
-void EditRedo() { SendMessageW(g_hwndEditor, EM_UNDO, 0, 0); }
+void EditRedo() { SendMessageW(g_hwndEditor, EM_REDO, 0, 0); }
 void EditCut() { SendMessageW(g_hwndEditor, WM_CUT, 0, 0); }
 void EditCopy() { SendMessageW(g_hwndEditor, WM_COPY, 0, 0); }
 void EditPaste() { SendMessageW(g_hwndEditor, WM_PASTE, 0, 0); }

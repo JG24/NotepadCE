@@ -7,7 +7,12 @@ enum class LangID
 {
     EN,
     JA,
-    PL
+    PL,
+    DE,
+    CS,
+    UK,
+    LT,
+    RU
 };
 
 struct LangStrings
@@ -49,7 +54,9 @@ struct LangStrings
     std::wstring menuZoomOut;
     std::wstring menuZoomDefault;
     std::wstring menuStatusBar;
-    std::wstring menuDarkMode;
+    std::wstring menuThemeLight;
+    std::wstring menuThemeDark;
+    std::wstring menuThemeMatrix;
     std::wstring menuShowSpecial;
     std::wstring menuLineNumbers;
     std::wstring menuTransparency;
@@ -66,14 +73,23 @@ struct LangStrings
     std::wstring menuToolsBase64;
     std::wstring menuToolsSha1;
     std::wstring menuToolsMd5;
+    std::wstring menuToolsUppercase;
+    std::wstring menuToolsLowercase;
+    std::wstring menuToolsTitleCase;
+    std::wstring menuToolsTrimTrailing;
+    std::wstring menuToolsTabsToSpaces;
+    std::wstring menuToolsSpacesToTabs;
+    std::wstring menuToolsReverseLines;
+    std::wstring menuToolsJoinLines;
 
     std::wstring menuHelp;
     std::wstring menuAbout;
 
+    // The "Language" submenu label is translated; the individual language
+    // entries below it are NOT — they are shown as autonyms (each language
+    // in its own name) so they stay recognisable whatever the current UI
+    // language is. See the hard-coded list in UpdateMenuStrings().
     std::wstring menuLanguage;
-    std::wstring menuLangEnglish;
-    std::wstring menuLangJapanese;
-    std::wstring menuLangPolish;
 
     std::wstring dialogFind;
     std::wstring dialogFindReplace;
@@ -108,6 +124,7 @@ struct LangStrings
     std::wstring aboutBuiltOn;
     std::wstring aboutTech;
     std::wstring aboutOriginalAuthor;
+    std::wstring aboutBuild;
 
     std::wstring statusChars;
     std::wstring statusLines;

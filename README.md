@@ -31,6 +31,9 @@ NotepadCE is a fork of [Legacy Notepad](https://github.com/forloopcodes/legacy-n
 - **Standard clipboard operations** — cut, copy, paste, delete, select all.
 - **Duplicate line** (`Ctrl+D`) — copies the current line and inserts it below; caret returns to the same column on the new line.
 - **Delete line** (`Ctrl+E`) — removes the entire current line with a single shortcut.
+- **Move line up / down** (`Alt+Up` / `Alt+Down`) — moves the current line, or every line the selection touches, keeping the selection.
+- **Indent / dedent** (`Tab` / `Shift+Tab`) — shifts whole selected lines instead of replacing the selection with a tab.
+- **Auto-indent** — a new line inherits the leading whitespace of the previous one.
 - **Insert date and time** (`F5`) — with a configurable format.
 - **Smart rich-text paste** — automatic detection of pastes from Word / Outlook / browsers (via the `CF_HTML` clipboard format). List markers, Unicode bullets and numbered lists are converted to plain ASCII; paragraph structure is preserved. Pastes from other sources are inserted unchanged.
 - **Line numbers** (gutter) with a small visual gap from the editor for readability.
@@ -58,7 +61,7 @@ NotepadCE is a fork of [Legacy Notepad](https://github.com/forloopcodes/legacy-n
 
 ![Dark mode](screenshots/dark-mode.png)
 
-- **Dark mode** — full dark theme for the main window, menus, status bar, dialogs and custom controls. No flicker when switching themes (this took some extra care around `CFE_AUTOBACKCOLOR` in RichEdit, so per-character background color does not bleed across theme changes).
+- **Three themes** — **Light**, **Dark** and **Matrix** (a near-black background with bright phosphor-green text), chosen from the View menu. The dark theme covers the main window, menus, status bar, dialogs and custom controls. No flicker when switching themes (this took some extra care around `CFE_AUTOBACKCOLOR` in RichEdit, so per-character background color does not bleed across theme changes).
 - **Owner-drawn menus** in dark mode — with proper hover handling on the menu bar (`WM_NCMOUSEMOVE` / `WM_NCMOUSELEAVE`).
 - **Status bar** with six sections: character / selection counter, total lines, current row, current column, encoding, line-ending format.
 - **Quick-access icons** on the menu bar (right-aligned): spell-checker, always-on-top, dark mode.
@@ -87,6 +90,11 @@ NotepadCE is a fork of [Legacy Notepad](https://github.com/forloopcodes/legacy-n
 - **Base64** — encode and decode the current selection.
 - **SHA-1** of the current selection (bcrypt API).
 - **MD5** of the current selection (bcrypt API).
+- **Change case** — UPPERCASE, lowercase, Title Case.
+- **Trim trailing whitespace**, and **convert tabs to spaces** or back.
+- **Reverse lines** and **join lines**.
+
+Every tool acts on the current selection, or on the whole document when nothing is selected. While Tools is enabled, the same menu is also reachable from the editor's right-click context menu.
 
 ### Customization
 
@@ -125,6 +133,8 @@ NotepadCE is a fork of [Legacy Notepad](https://github.com/forloopcodes/legacy-n
 | `Ctrl+G`       | Go to line                       |
 | `Ctrl+D`       | Duplicate line                   |
 | `Ctrl+E`       | Delete line                      |
+| `Tab` / `Shift+Tab` | Indent / dedent selected lines |
+| `Alt+Up` / `Alt+Down` | Move line(s) up / down     |
 | `F5`           | Insert date and time             |
 | `Ctrl++`       | Zoom in                          |
 | `Ctrl+-`       | Zoom out                         |
@@ -136,7 +146,7 @@ NotepadCE is a fork of [Legacy Notepad](https://github.com/forloopcodes/legacy-n
 
 - **Windows 8** or newer (`_WIN32_WINNT=0x0602`). Tested on **Windows 11**.
 - No runtime dependencies — everything is linked statically (GCC: `-static -static-libgcc -static-libstdc++`).
-- Single executable (~430 KB).
+- Single executable (~491 KB).
 
 ---
 
@@ -225,9 +235,7 @@ src/
 │   └── globals.{h,cpp}      — global state, window handles
 ├── lang/
 │   ├── lang.{h,cpp}         — translation system
-│   ├── en.h                 — English
-│   ├── pl.h                 — Polski
-│   └── ja.h                 — 日本語
+│   └── *.h                  — one header per language (en, pl, ja, de, cs, uk, lt, ru)
 └── modules/
     ├── theme.{h,cpp}        — light / dark themes
     ├── editor.{h,cpp}       — RichEdit control, paste, duplicate, delete line
@@ -256,13 +264,20 @@ src/
 
 ## Multi-language support
 
-The interface is available in three languages (switched live, without restart):
+The interface is available in eight languages (switched live, without restart):
 
 - 🇬🇧 **English**
 - 🇵🇱 **Polski**
 - 🇯🇵 **日本語**
+- 🇩🇪 **Deutsch**
+- 🇨🇿 **Čeština**
+- 🇺🇦 **Українська**
+- 🇱🇹 **Lietuvių**
+- 🇷🇺 **Русский**
 
-Each language is a single header file (`src/lang/{en,pl,ja}.h`) containing a `LangStrings` struct. Adding a new language is one new `.h` plus one menu entry — no infrastructure, no `.po`/`.mo` toolchain.
+The language menu lists each language by its own name (autonym), so an entry stays recognisable whatever the current UI language is set to.
+
+Each language is a single header file (`src/lang/*.h`) containing a `LangStrings` struct. Adding a new language is one new `.h` plus one menu entry — no infrastructure, no `.po`/`.mo` toolchain.
 
 ---
 
