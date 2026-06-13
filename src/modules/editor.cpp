@@ -19,7 +19,7 @@
 #include "theme.h"
 #include "ui.h"
 #include "gutter.h"
-#include "rtfpaste.h"
+#include "spellchecker.h"
 #include "resource.h"
 #include "lang/lang.h"
 #include <richedit.h>
@@ -34,6 +34,41 @@
 // value so QueryInterface works without an extra link dependency.
 static const IID kIID_ITextDocument =
     {0x8CC497C0, 0xA1DF, 0x11CE, {0x80, 0x98, 0x00, 0xAA, 0x00, 0x47, 0xBE, 0x5D}};
+
+// First visible line captured at WM_KILLFOCUS so it can be restored once
+// the editor regains focus. RichEdit's focus handling runs a
+// scroll-caret-into-view pass; with the caret at the end of a long pasted
+// document that yanks the viewport to the bottom even though the user had
+// scrolled elsewhere. Notepad / Notepad++ keep the scroll across focus
+// changes — only an actual edit / caret move scrolls. -1 = nothing pinned.
+static int g_pinnedFirstLine = -1;
+
+// Posted to the editor from WM_SETFOCUS as an early (often zero-flicker)
+// restore attempt. RichEdit's scroll-caret pass may be synchronous, queued
+// as a message, or deferred to a later paint/timer — we can't know which,
+// so the restore is attempted at several settle points and the pin is only
+// disarmed by the final timer below.
+#define WM_RESTORE_SCROLL (WM_USER + 0x137)
+
+// Backstop timer set in WM_SETFOCUS. Fires after the whole activation dance
+// (messages drained, deferred scroll done, uncover repaint complete), so it
+// catches the scroll-to-caret no matter how RichEdit scheduled it. Also the
+// only place the pin is cleared. ~40 ms: long enough to outlast the deferred
+// work, short enough that any visible snap-back is a couple of frames.
+#define RESTORE_SCROLL_TIMER_ID 0xCE50C011
+#define RESTORE_SCROLL_DELAY_MS 40
+
+// Pull the viewport back to the pinned first-visible-line if it has drifted.
+// Does NOT clear the pin — that's the timer's job, so earlier attempts can't
+// disarm before RichEdit's (possibly later) scroll has actually happened.
+static void RestorePinnedScroll(HWND hwnd)
+{
+    if (g_pinnedFirstLine < 0)
+        return;
+    int now = static_cast<int>(SendMessageW(hwnd, EM_GETFIRSTVISIBLELINE, 0, 0));
+    if (now != g_pinnedFirstLine)
+        SendMessageW(hwnd, EM_LINESCROLL, 0, g_pinnedFirstLine - now);
+}
 
 struct StreamCookie
 {
@@ -94,6 +129,24 @@ std::pair<int, int> GetCursorPos()
     int lineIndex = static_cast<int>(SendMessageW(g_hwndEditor, EM_LINEINDEX, static_cast<WPARAM>(line), 0));
     int col = static_cast<int>(start) - lineIndex;
     return {line + 1, col + 1};
+}
+
+// Make RichEdit behave like the plain EDIT control classic Notepad uses:
+// one font for the entire document, never silently swapped. By default
+// RichEdit enables IMF_AUTOFONT — it inspects the Unicode script of each
+// run and substitutes an "associated font" for characters it thinks need
+// one. Word text is full of such characters (smart quotes " " ' ', en/em
+// dashes – —, NBSP, ellipsis …), so pasting it via CF_UNICODETEXT — which
+// carries no font data at all — still produced a patchwork of faces,
+// because RichEdit re-fonts the runs *after* the insert. WM_SETFONT only
+// sets the default; it doesn't undo auto-font runs. Clearing these flags
+// once at control creation removes the feature entirely, so every glyph
+// renders in g_state.hFont regardless of where the text came from.
+void SetEditorPlainTextMode(HWND hwnd)
+{
+    LRESULT opts = SendMessageW(hwnd, EM_GETLANGOPTIONS, 0, 0);
+    opts &= ~(IMF_AUTOFONT | IMF_AUTOFONTSIZEADJUST | IMF_DUALFONT);
+    SendMessageW(hwnd, EM_SETLANGOPTIONS, 0, opts);
 }
 
 void ApplyFont()
@@ -165,6 +218,7 @@ void ApplyWordWrap()
     g_origEditorProc = reinterpret_cast<WNDPROC>(SetWindowLongPtrW(g_hwndEditor, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(EditorSubclassProc)));
     SendMessageW(g_hwndEditor, EM_EXLIMITTEXT, 0, static_cast<LPARAM>(-1));
     SendMessageW(g_hwndEditor, EM_SETEVENTMASK, 0, ENM_CHANGE | ENM_SELCHANGE);
+    SetEditorPlainTextMode(g_hwndEditor);
     ApplyFont();
     ApplyTheme();
     SetEditorText(text);
@@ -515,127 +569,22 @@ void DeleteLine()
 
 static void PasteAsPlainText(HWND hwnd)
 {
-    if (!OpenClipboard(hwnd))
-        return;
-
-    // CF_UNICODETEXT is the authoritative source for characters — it's
-    // already UTF-16 from Windows, no codepage decoding involved.
+    // Let RichEdit do the paste through its native EM_PASTESPECIAL path,
+    // restricted to CF_UNICODETEXT — that is exactly "plain text only,
+    // no formatting / no list rescue / nothing cut", the same as Notepad
+    // / Notepad++. RichEdit handles clipboard open/close, line-ending
+    // normalisation, scrollbar / layout updates, and undo internally.
     //
-    // Detecting "this came from a rich source we should re-format" via
-    // CF_HTML rather than CF_RTF: Word / Outlook / browsers put CF_HTML
-    // on the clipboard, RichEdit-only copies (our own editor, WordPad)
-    // do not. That keeps in-editor copy/paste round-trips exact while
-    // still rescuing paragraphs and bullets from Word.
-    static const UINT cfHtml = RegisterClipboardFormatW(L"HTML Format");
-    bool isWordLike = (cfHtml != 0 && IsClipboardFormatAvailable(cfHtml) != FALSE);
-
-    HANDLE hData = GetClipboardData(CF_UNICODETEXT);
-    if (!hData)
-    {
-        CloseClipboard();
-        return;
-    }
-    LPCWSTR raw = static_cast<LPCWSTR>(GlobalLock(hData));
-    if (!raw)
-    {
-        CloseClipboard();
-        return;
-    }
-    std::wstring textBuf(raw);
-    GlobalUnlock(hData);
-
-    if (textBuf.empty())
-    {
-        CloseClipboard();
-        return;
-    }
-    if (isWordLike)
-        textBuf = NormalizeRichPaste(textBuf);
-
-    // RichEdit 2.0+ stores paragraph breaks as a single \r. Inserting a
-    // \r\n via EM_REPLACESEL is treated as two separate breaks and adds
-    // a stray blank line per line, so collapse all line-ending forms to
-    // a lone \r before insertion.
-    {
-        std::wstring norm;
-        norm.reserve(textBuf.size());
-        for (size_t i = 0; i < textBuf.size(); ++i)
-        {
-            wchar_t ch = textBuf[i];
-            if (ch == L'\r')
-            {
-                norm += L'\r';
-                if (i + 1 < textBuf.size() && textBuf[i + 1] == L'\n')
-                    ++i;
-            }
-            else if (ch == L'\n')
-            {
-                norm += L'\r';
-            }
-            else
-            {
-                norm += ch;
-            }
-        }
-        textBuf = std::move(norm);
-    }
-    LPCWSTR text = textBuf.c_str();
-
-    DWORD selStart = 0, selEnd = 0;
-    SendMessageW(hwnd, EM_GETSEL, reinterpret_cast<WPARAM>(&selStart), reinterpret_cast<LPARAM>(&selEnd));
-
-    // Configure the editor's default character format on the *insertion
-    // point* before the paste, then run a single EM_REPLACESEL. The
-    // inserted text inherits the IP format we just set — RichEdit's
-    // "replacement text takes on the character formatting of the
-    // preceding character / IP" rule kicks in here. The big win: setting
-    // SCF_SELECTION on a collapsed selection touches no existing
-    // character, so it isn't recorded as an undoable edit. The paste
-    // becomes the SOLE undo step. Ctrl+Z reverses it; Ctrl+Y restores it.
-    //
-    // The earlier post-paste approach (apply CHARFORMAT2 to the inserted
-    // range after EM_REPLACESEL) created a second undo entry on top of
-    // the paste. First Ctrl+Z then only reversed the format change —
-    // visualised as the full pasted block being selected, since RichEdit
-    // restores the selection that was active when the format applied —
-    // and a second Ctrl+Z was needed to actually remove the text. Both
-    // Undo(tomSuspend) and BeginEditCollection() empirically broke the
-    // redo stack: Ctrl+Y after Ctrl+Z became a no-op. Pre-format avoids
-    // the whole class of problems.
-    HDC hdc = GetDC(hwnd);
-    int sizeTwips = MulDiv(g_state.fontSize * g_state.zoomLevel / 100, 1440, 72);
-    ReleaseDC(hwnd, hdc);
-
-    CHARFORMAT2W cf = {};
-    cf.cbSize = sizeof(cf);
-    cf.dwMask = CFM_FACE | CFM_SIZE | CFM_BOLD | CFM_ITALIC | CFM_UNDERLINE | CFM_UNDERLINETYPE | CFM_COLOR | CFM_BACKCOLOR;
-    wcscpy_s(cf.szFaceName, g_state.fontName.c_str());
-    cf.yHeight = sizeTwips;
-    // AUTOBACKCOLOR so the pasted text follows the editor's bg colour
-    // (EM_SETBKGNDCOLOR) instead of baking in a per-char dark/light value
-    // that would survive theme switches.
-    cf.dwEffects = CFE_AUTOBACKCOLOR;
-    if (g_state.fontWeight >= FW_BOLD)
-        cf.dwEffects |= CFE_BOLD;
-    if (g_state.fontItalic)
-        cf.dwEffects |= CFE_ITALIC;
-    if (g_state.fontUnderline)
-        cf.dwEffects |= CFE_UNDERLINE;
-    cf.bUnderlineType = g_state.fontUnderline ? CFU_UNDERLINE : CFU_UNDERLINENONE;
-    cf.crTextColor = GetEditorTextColor();
-
-    LRESULT oldMask = SendMessageW(hwnd, EM_SETEVENTMASK, 0, 0);
-    // Collapse to the insertion point, push the IP format, then restore
-    // the user's original selection so EM_REPLACESEL still replaces it
-    // (instead of just inserting at the caret).
-    SendMessageW(hwnd, EM_SETSEL, selStart, selStart);
-    SendMessageW(hwnd, EM_SETCHARFORMAT, SCF_SELECTION, reinterpret_cast<LPARAM>(&cf));
-    SendMessageW(hwnd, EM_SETSEL, selStart, selEnd);
-    SendMessageW(hwnd, EM_SETEVENTMASK, 0, oldMask);
-
-    SendMessageW(hwnd, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(text));
-
-    CloseClipboard();
+    // Earlier we did this manually (open clipboard → read CF_UNICODETEXT
+    // → CRLF→CR → EM_REPLACESEL → EM_SCROLLCARET). That path left
+    // RichEdit's layout cache in an inconsistent state for large Word
+    // pastes: after Alt-Tab away and back, or after another window was
+    // brought over and then hidden, the editor area painted blank until
+    // the user scrolled. Going through EM_PASTESPECIAL fixes it because
+    // RichEdit's own paste finishes by issuing the same scrollbar /
+    // visible-region updates it issues for typed input — which our
+    // manual path skipped.
+    SendMessageW(hwnd, EM_PASTESPECIAL, CF_UNICODETEXT, 0);
 }
 
 static void DrawSpecialCharMarkers(HWND hwnd)
@@ -740,6 +689,128 @@ static void DrawSpecialCharMarkers(HWND hwnd)
     ReleaseDC(hwnd, hdc);
 }
 
+// Draw a small zig-zag (triangle wave, ±1 px) between x1 and x2 at the
+// given baseline. Used as a non-invasive spell-check underline that
+// lives purely on the editor's overlay — no CHARFORMAT touched, so
+// RichEdit's layout stays clean even on huge documents with many errors.
+static void DrawSpellWave(HDC hdc, int x1, int x2, int y)
+{
+    if (x2 <= x1)
+        return;
+    const int step = 2;
+    int count = ((x2 - x1) / step) + 2;
+    if (count > 4096)
+        count = 4096; // sanity cap for absurdly wide errors
+    std::vector<POINT> pts;
+    pts.reserve(static_cast<size_t>(count));
+    bool up = true;
+    for (int x = x1; x <= x2; x += step)
+    {
+        pts.push_back({x, up ? y - 1 : y + 1});
+        up = !up;
+    }
+    if (pts.size() >= 2)
+        Polyline(hdc, pts.data(), static_cast<int>(pts.size()));
+}
+
+static void DrawSpellErrors(HWND hwnd)
+{
+    const auto &errors = GetSpellErrors();
+    if (errors.empty())
+        return;
+
+    RECT rcClient;
+    GetClientRect(hwnd, &rcClient);
+    int totalLines = static_cast<int>(SendMessageW(hwnd, EM_GETLINECOUNT, 0, 0));
+    int totalChars = static_cast<int>(SendMessageW(hwnd, WM_GETTEXTLENGTH, 0, 0));
+    int firstVisLine = static_cast<int>(SendMessageW(hwnd, EM_GETFIRSTVISIBLELINE, 0, 0));
+    int firstVisChar = static_cast<int>(SendMessageW(hwnd, EM_LINEINDEX, firstVisLine, 0));
+    if (firstVisChar < 0)
+        firstVisChar = 0;
+
+    // Sample line height from two known-laid-out adjacent visible lines.
+    // EM_POSFROMCHAR is only reliable for char positions RichEdit has
+    // already laid out — sampling from char 0 when scrolled far down a
+    // huge document returned bogus coordinates and the wave landed on
+    // the menu / status bar. Visible lines are always laid out.
+    int lineHeight = 0;
+    if (firstVisLine + 1 < totalLines)
+    {
+        POINTL p0{}, p1{};
+        int line0Char = firstVisChar;
+        int line1Char = static_cast<int>(SendMessageW(hwnd, EM_LINEINDEX, firstVisLine + 1, 0));
+        SendMessageW(hwnd, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&p0), line0Char);
+        SendMessageW(hwnd, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&p1), line1Char);
+        lineHeight = p1.y - p0.y;
+    }
+    if (lineHeight < 6 || lineHeight > 200)
+    {
+        HDC dcTmp = GetDC(hwnd);
+        HFONT hFont = reinterpret_cast<HFONT>(SendMessageW(hwnd, WM_GETFONT, 0, 0));
+        HFONT oldFont = hFont ? reinterpret_cast<HFONT>(SelectObject(dcTmp, hFont)) : nullptr;
+        TEXTMETRICW tm{};
+        GetTextMetricsW(dcTmp, &tm);
+        lineHeight = tm.tmHeight + tm.tmExternalLeading;
+        if (oldFont)
+            SelectObject(dcTmp, oldFont);
+        ReleaseDC(hwnd, dcTmp);
+        if (lineHeight < 6)
+            lineHeight = 16;
+    }
+
+    HDC hdc = GetDC(hwnd);
+    if (!hdc)
+        return;
+    // Clip strictly to the editor's client area. GetDC already does this
+    // by default, but be paranoid: any stray draw at a y outside [0,
+    // rcClient.bottom] would otherwise risk bleeding into the parent
+    // (menu bar above, status bar below) on certain DWM compositing
+    // paths.
+    IntersectClipRect(hdc, rcClient.left, rcClient.top, rcClient.right, rcClient.bottom);
+
+    HPEN pen = CreatePen(PS_SOLID, 1, RGB(220, 50, 50));
+    HPEN oldPen = reinterpret_cast<HPEN>(SelectObject(hdc, pen));
+
+    for (const auto &e : errors)
+    {
+        int eEnd = e.start + e.length;
+        // Skip errors entirely above the visible char range — their
+        // EM_POSFROMCHAR may return stale / unlaid-out coords.
+        if (eEnd <= firstVisChar)
+            continue;
+        // Past end of document → ignore (shouldn't happen normally).
+        if (e.start > totalChars)
+            break;
+
+        POINTL ptStart{};
+        SendMessageW(hwnd, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&ptStart), e.start);
+        // Past the visible bottom — errors are in char order, so done.
+        if (ptStart.y > rcClient.bottom)
+            break;
+        if (ptStart.y + lineHeight < 0)
+            continue;
+
+        POINTL ptEnd{};
+        SendMessageW(hwnd, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&ptEnd), eEnd);
+        // Skip multi-line errors (a spell-check error is a single word,
+        // which essentially never wraps).
+        if (ptEnd.y != ptStart.y)
+            continue;
+        // Sanity: x range must make sense.
+        if (ptEnd.x <= ptStart.x)
+            continue;
+
+        int waveY = ptStart.y + lineHeight - 2;
+        if (waveY < rcClient.top || waveY > rcClient.bottom)
+            continue;
+        DrawSpellWave(hdc, ptStart.x, ptEnd.x, waveY);
+    }
+
+    SelectObject(hdc, oldPen);
+    DeleteObject(pen);
+    ReleaseDC(hwnd, hdc);
+}
+
 LRESULT CALLBACK EditorSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     switch (msg)
@@ -747,15 +818,56 @@ LRESULT CALLBACK EditorSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
     case WM_PAINT:
     {
         LRESULT result = CallWindowProcW(g_origEditorProc, hwnd, msg, wParam, lParam);
-        // Skip marker overlay while user is drag-selecting — the extra GDI
+        // Skip overlay drawing while user is drag-selecting — extra GDI
         // operations on the same DC interfere with RichEdit's selection
         // tracking and cause the selection to release mid-drag.
-        if (g_state.showSpecialChars && !(GetKeyState(VK_LBUTTON) & 0x8000))
+        bool dragging = (GetKeyState(VK_LBUTTON) & 0x8000) != 0;
+        if (g_state.showSpecialChars && !dragging)
             DrawSpecialCharMarkers(hwnd);
+        if (g_state.spellCheckEnabled && !dragging)
+            DrawSpellErrors(hwnd);
         if (g_state.showLineNumbers && g_hwndGutter)
             InvalidateRect(g_hwndGutter, nullptr, FALSE);
         return result;
     }
+    case WM_KILLFOCUS:
+    {
+        // Capture the user's viewport while it's still intact — before
+        // deactivation and before the next focus's scroll-caret pass.
+        // Line-based (EM_GETFIRSTVISIBLELINE) survives RichEdit's layout
+        // passes; a pixel-based EM_GETSCROLLPOS snapshot does not.
+        g_pinnedFirstLine = static_cast<int>(SendMessageW(hwnd, EM_GETFIRSTVISIBLELINE, 0, 0));
+        break; // let the default handler run too
+    }
+    case WM_SETFOCUS:
+    {
+        LRESULT result = CallWindowProcW(g_origEditorProc, hwnd, msg, wParam, lParam);
+        // Three restore attempts at increasing delays — none disarm the
+        // pin except the timer, so whichever one runs after RichEdit's
+        // actual scroll wins:
+        //   1) synchronous, here (catches an immediate scroll, no flicker)
+        //   2) posted message (catches a message-queued scroll)
+        //   3) timer (catches a paint/timer-deferred scroll; disarms)
+        if (g_pinnedFirstLine >= 0)
+        {
+            RestorePinnedScroll(hwnd);
+            PostMessageW(hwnd, WM_RESTORE_SCROLL, 0, 0);
+            SetTimer(hwnd, RESTORE_SCROLL_TIMER_ID, RESTORE_SCROLL_DELAY_MS, nullptr);
+        }
+        return result;
+    }
+    case WM_RESTORE_SCROLL:
+        RestorePinnedScroll(hwnd);
+        return 0;
+    case WM_TIMER:
+        if (wParam == RESTORE_SCROLL_TIMER_ID)
+        {
+            KillTimer(hwnd, RESTORE_SCROLL_TIMER_ID);
+            RestorePinnedScroll(hwnd);
+            g_pinnedFirstLine = -1; // disarm — restore cycle complete
+            return 0;
+        }
+        break;
     case WM_LBUTTONUP:
     {
         LRESULT result = CallWindowProcW(g_origEditorProc, hwnd, msg, wParam, lParam);
@@ -995,6 +1107,8 @@ LRESULT CALLBACK EditorSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             AppendMenuW(hTools, MF_SEPARATOR, 0, nullptr);
             AppendMenuW(hTools, MF_STRING, IDM_TOOLS_REVERSELINES, lang.menuToolsReverseLines.c_str());
             AppendMenuW(hTools, MF_STRING, IDM_TOOLS_JOINLINES, lang.menuToolsJoinLines.c_str());
+            AppendMenuW(hTools, MF_STRING, IDM_TOOLS_REMOVEEMPTY, lang.menuToolsRemoveEmpty.c_str());
+            AppendMenuW(hTools, MF_STRING, IDM_TOOLS_REMOVEDUPES, lang.menuToolsRemoveDupes.c_str());
             AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
             AppendMenuW(hMenu, MF_POPUP, reinterpret_cast<UINT_PTR>(hTools), lang.menuTools.c_str());
         }

@@ -67,6 +67,8 @@ inline LangStrings g_langCS = {
     L"Mezery na &tabulátory",
     L"&Obrátit pořadí řádků",
     L"&Spojit řádky",
+    L"O&dstranit prázdné řádky",
+    L"Odstranit &duplicitní řádky",
 
     L"Nápo&věda",
     L"&O aplikaci",

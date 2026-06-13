@@ -20,7 +20,7 @@
 
 // Human-readable application version, shown in the About dialog. Keep in
 // sync with the VERSION in CMakeLists.txt and app.manifest.
-#define APP_VERSION L"0.8"
+#define APP_VERSION L"0.8.5"
 
 #define IDC_EDITOR 1000
 #define IDC_STATUSBAR 1001
@@ -97,6 +97,8 @@
 #define IDM_TOOLS_SPACES2TABS 40209
 #define IDM_TOOLS_REVERSELINES 40210
 #define IDM_TOOLS_JOINLINES 40211
+#define IDM_TOOLS_REMOVEEMPTY 40212
+#define IDM_TOOLS_REMOVEDUPES 40213
 
 #define IDM_QUICK_SPELLCHECK 40300
 #define IDM_QUICK_ONTOP 40301

@@ -105,6 +105,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         g_origStatusProc = reinterpret_cast<WNDPROC>(SetWindowLongPtrW(g_hwndStatus, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(StatusSubclassProc)));
         SendMessageW(g_hwndEditor, EM_EXLIMITTEXT, 0, static_cast<LPARAM>(-1));
         SendMessageW(g_hwndEditor, EM_SETEVENTMASK, 0, ENM_CHANGE | ENM_SELCHANGE);
+        SetEditorPlainTextMode(g_hwndEditor);
         ApplyFont();
         if (g_state.wordWrap)
         {
@@ -667,6 +668,12 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             break;
         case IDM_TOOLS_JOINLINES:
             ToolsJoinLines();
+            break;
+        case IDM_TOOLS_REMOVEEMPTY:
+            ToolsRemoveEmptyLines();
+            break;
+        case IDM_TOOLS_REMOVEDUPES:
+            ToolsRemoveDuplicateLines();
             break;
         case IDM_VIEW_LANG_EN:
             ChangeLanguage(LangID::EN);

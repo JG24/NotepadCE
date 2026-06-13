@@ -293,6 +293,8 @@ void UpdateMenuStrings()
             SetItemText(hToolsMenu, IDM_TOOLS_SPACES2TABS, FALSE, lang.menuToolsSpacesToTabs.c_str());
             SetItemText(hToolsMenu, IDM_TOOLS_REVERSELINES, FALSE, lang.menuToolsReverseLines.c_str());
             SetItemText(hToolsMenu, IDM_TOOLS_JOINLINES, FALSE, lang.menuToolsJoinLines.c_str());
+            SetItemText(hToolsMenu, IDM_TOOLS_REMOVEEMPTY, FALSE, lang.menuToolsRemoveEmpty.c_str());
+            SetItemText(hToolsMenu, IDM_TOOLS_REMOVEDUPES, FALSE, lang.menuToolsRemoveDupes.c_str());
         }
     }
 

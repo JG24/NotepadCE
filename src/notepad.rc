@@ -99,6 +99,8 @@ BEGIN
         MENUITEM SEPARATOR
         MENUITEM "&Reverse Lines", IDM_TOOLS_REVERSELINES
         MENUITEM "&Join Lines", IDM_TOOLS_JOINLINES
+        MENUITEM "Remove &Empty Lines", IDM_TOOLS_REMOVEEMPTY
+        MENUITEM "Remove &Duplicate Lines", IDM_TOOLS_REMOVEDUPES
     END
     POPUP "&Help"
     BEGIN

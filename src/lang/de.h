@@ -67,6 +67,8 @@ inline LangStrings g_langDE = {
     L"Leerzeichen in Ta&bs",
     L"Zeilen &umkehren",
     L"Zeilen &verbinden",
+    L"Leere Zeilen e&ntfernen",
+    L"&Duplikate entfernen",
 
     L"&Hilfe",
     L"&Über",

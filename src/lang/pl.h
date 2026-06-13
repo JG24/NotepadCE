@@ -67,6 +67,8 @@ inline LangStrings g_langPL = {
     L"Spacje na &tabulatory",
     L"&Odwróć kolejność linii",
     L"&Złącz linie",
+    L"Usuń puste &linie",
+    L"Usuń z&duplikowane linie",
 
     L"P&omoc",
     L"&O programie",

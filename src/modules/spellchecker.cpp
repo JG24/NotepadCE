@@ -140,102 +140,48 @@ static std::wstring NormalizeForRichEdit(const std::wstring &text)
     return out;
 }
 
+// Spell errors are kept in this module-static vector and rendered by
+// the editor's WM_PAINT as a GDI overlay (DrawSpellErrors in editor.cpp).
+// Nothing about spell state is written into RichEdit's character format,
+// so the document layout / scroll cache never knows it exists — that's
+// the entire point of this design. The earlier "apply CFE_UNDERLINEWAVE
+// to every error via EM_EXSETSEL + EM_SETCHARFORMAT" path mutated
+// hundreds of ranges on a Lorem-ipsum-sized buffer, which corrupted
+// RichEdit's internal scroll/layout cache and made the editor jump to
+// the bottom (and paint blank until scrolled) after a cover/uncover.
+static std::vector<SpellError> g_spellErrors;
+
+const std::vector<SpellError> &GetSpellErrors()
+{
+    return g_spellErrors;
+}
+
 void ClearSpellingMarks()
 {
-    if (!g_hwndEditor)
+    if (g_spellErrors.empty())
         return;
-    int len = static_cast<int>(SendMessageW(g_hwndEditor, WM_GETTEXTLENGTH, 0, 0));
-    if (len <= 0)
-        return;
-
-    CHARRANGE oldRange;
-    SendMessageW(g_hwndEditor, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&oldRange));
-    LRESULT oldMask = SendMessageW(g_hwndEditor, EM_SETEVENTMASK, 0, 0);
-    SendMessageW(g_hwndEditor, WM_SETREDRAW, FALSE, 0);
-
-    CHARRANGE all = {0, len};
-    SendMessageW(g_hwndEditor, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&all));
-    CHARFORMAT2W cf = {};
-    cf.cbSize = sizeof(cf);
-    cf.dwMask = CFM_UNDERLINE | CFM_UNDERLINETYPE;
-    cf.dwEffects = 0;
-    cf.bUnderlineType = CFU_UNDERLINENONE;
-    SendMessageW(g_hwndEditor, EM_SETCHARFORMAT, SCF_SELECTION, reinterpret_cast<LPARAM>(&cf));
-
-    SendMessageW(g_hwndEditor, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&oldRange));
-    SendMessageW(g_hwndEditor, WM_SETREDRAW, TRUE, 0);
-    SendMessageW(g_hwndEditor, EM_SETEVENTMASK, 0, oldMask);
-    InvalidateRect(g_hwndEditor, nullptr, TRUE);
+    g_spellErrors.clear();
+    if (g_hwndEditor)
+        InvalidateRect(g_hwndEditor, nullptr, FALSE);
 }
 
 void ApplySpellingMarks()
 {
-    static bool inProgress = false;
-    if (inProgress)
-        return;
     if (!g_state.spellCheckEnabled || !g_checker || !g_hwndEditor)
+    {
+        ClearSpellingMarks();
         return;
+    }
 
-    // Don't run while the user is selecting/dragging — EM_EXSETSEL inside
-    // would clobber the in-progress selection.
+    // Don't re-run mid-drag — the selection-snapshot logic in the old
+    // path needed this, but even with overlay rendering it's still
+    // wasted work while the user is actively selecting.
     if (GetKeyState(VK_LBUTTON) & 0x8000)
         return;
 
-    inProgress = true;
-
     std::wstring text = NormalizeForRichEdit(GetEditorText());
-    int textLen = static_cast<int>(SendMessageW(g_hwndEditor, WM_GETTEXTLENGTH, 0, 0));
-
-    CHARRANGE oldRange;
-    SendMessageW(g_hwndEditor, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&oldRange));
-
-    // EM_EXSETSEL on each error range nudges the viewport even with
-    // WM_SETREDRAW disabled — for long documents this manifests as the
-    // view sliding upward as the loop walks errors from top to bottom.
-    // Snapshot the scroll position so we can restore it at the end.
-    POINT scrollPos = {};
-    SendMessageW(g_hwndEditor, EM_GETSCROLLPOS, 0, reinterpret_cast<LPARAM>(&scrollPos));
-
-    // Suppress EN_SELCHANGE / EN_CHANGE notifications during the bulk
-    // format updates. Otherwise every EM_EXSETSEL call below fires an
-    // EN_SELCHANGE, each of which triggers UpdateStatus() in main.cpp —
-    // for a document with many spelling errors that floods the UI thread
-    // and makes the status bar fluctuate, selection misbehave, and the
-    // editor feel locked up.
-    LRESULT oldMask = SendMessageW(g_hwndEditor, EM_SETEVENTMASK, 0, 0);
-    SendMessageW(g_hwndEditor, WM_SETREDRAW, FALSE, 0);
-
-    // Clear previous wave underlines across the whole buffer.
-    CHARRANGE all = {0, textLen};
-    SendMessageW(g_hwndEditor, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&all));
-    CHARFORMAT2W clear = {};
-    clear.cbSize = sizeof(clear);
-    clear.dwMask = CFM_UNDERLINE | CFM_UNDERLINETYPE;
-    clear.dwEffects = 0;
-    clear.bUnderlineType = CFU_UNDERLINENONE;
-    SendMessageW(g_hwndEditor, EM_SETCHARFORMAT, SCF_SELECTION, reinterpret_cast<LPARAM>(&clear));
-
-    auto errors = CheckSpelling(text);
-    for (const auto &e : errors)
-    {
-        CHARRANGE range = {e.start, e.start + e.length};
-        SendMessageW(g_hwndEditor, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&range));
-        CHARFORMAT2W cf = {};
-        cf.cbSize = sizeof(cf);
-        cf.dwMask = CFM_UNDERLINE | CFM_UNDERLINETYPE;
-        cf.dwEffects = CFE_UNDERLINE;
-        cf.bUnderlineType = CFU_UNDERLINEWAVE;
-        cf.bUnderlineColor = 0x06;
-        SendMessageW(g_hwndEditor, EM_SETCHARFORMAT, SCF_SELECTION, reinterpret_cast<LPARAM>(&cf));
-    }
-
-    SendMessageW(g_hwndEditor, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&oldRange));
-    SendMessageW(g_hwndEditor, EM_SETSCROLLPOS, 0, reinterpret_cast<LPARAM>(&scrollPos));
-    SendMessageW(g_hwndEditor, WM_SETREDRAW, TRUE, 0);
-    SendMessageW(g_hwndEditor, EM_SETEVENTMASK, 0, oldMask);
-    InvalidateRect(g_hwndEditor, nullptr, TRUE);
-
-    inProgress = false;
+    g_spellErrors = CheckSpelling(text);
+    InvalidateRect(g_hwndEditor, nullptr, FALSE);
 }
 
 void ScheduleSpellCheck()

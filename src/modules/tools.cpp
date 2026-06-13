@@ -541,6 +541,65 @@ void ToolsJoinLines()
     ReplaceTargetText(out, wasSelection);
 }
 
+// Drop any line that is empty or whitespace-only. The result keeps the
+// original order; line endings collapse to CR-only via JoinWithCR.
+void ToolsRemoveEmptyLines()
+{
+    bool wasSelection = false;
+    std::wstring text = GetTargetText(&wasSelection);
+    if (text.empty())
+        return;
+    auto lines = SplitLines(text);
+    std::vector<std::wstring> kept;
+    kept.reserve(lines.size());
+    for (auto &ln : lines)
+    {
+        if (ln.find_first_not_of(L" \t") != std::wstring::npos)
+            kept.push_back(std::move(ln));
+    }
+    ReplaceTargetText(JoinWithCR(kept), wasSelection);
+}
+
+// Keep first occurrence of each distinct line, preserving order.
+// Exact case- and whitespace-sensitive match — "abc" and "abc " are not
+// duplicates, deliberately, so users can dedupe IP-list-style data
+// without surprises.
+//
+// Sort-and-mark is used instead of unordered_set<wstring> to avoid the
+// hash-table template instantiation cost — that header alone pushed the
+// binary past the 500 KiB ceiling in testing.
+void ToolsRemoveDuplicateLines()
+{
+    bool wasSelection = false;
+    std::wstring text = GetTargetText(&wasSelection);
+    if (text.empty())
+        return;
+    auto lines = SplitLines(text);
+    std::vector<size_t> idx(lines.size());
+    for (size_t i = 0; i < idx.size(); ++i)
+        idx[i] = i;
+    std::sort(idx.begin(), idx.end(),
+              [&](size_t a, size_t b) {
+                  if (lines[a] != lines[b])
+                      return lines[a] < lines[b];
+                  return a < b; // stable order within a duplicate group
+              });
+    std::vector<bool> drop(lines.size(), false);
+    for (size_t i = 1; i < idx.size(); ++i)
+    {
+        if (lines[idx[i]] == lines[idx[i - 1]])
+            drop[idx[i]] = true;
+    }
+    std::vector<std::wstring> kept;
+    kept.reserve(lines.size());
+    for (size_t i = 0; i < lines.size(); ++i)
+    {
+        if (!drop[i])
+            kept.push_back(std::move(lines[i]));
+    }
+    ReplaceTargetText(JoinWithCR(kept), wasSelection);
+}
+
 // ---------- Top-level "Tools" menu visibility -----------------------------
 
 static HMENU g_hToolsMenuDetached = nullptr;

@@ -67,6 +67,8 @@ inline LangStrings g_langLT = {
     L"Tarpai į ta&buliacijas",
     L"A&pversti eilučių tvarką",
     L"&Sujungti eilutes",
+    L"Pašalinti tuš&čias eilutes",
+    L"Pašalinti d&ublikatus",
 
     L"&Žinynas",
     L"&Apie",

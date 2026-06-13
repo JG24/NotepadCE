@@ -81,6 +81,8 @@ struct LangStrings
     std::wstring menuToolsSpacesToTabs;
     std::wstring menuToolsReverseLines;
     std::wstring menuToolsJoinLines;
+    std::wstring menuToolsRemoveEmpty;
+    std::wstring menuToolsRemoveDupes;
 
     std::wstring menuHelp;
     std::wstring menuAbout;

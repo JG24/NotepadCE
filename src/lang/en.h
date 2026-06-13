@@ -67,6 +67,8 @@ inline LangStrings g_langEN = {
     L"Spaces to Ta&bs",
     L"&Reverse Lines",
     L"&Join Lines",
+    L"Remove &Empty Lines",
+    L"Remove &Duplicate Lines",
 
     L"&Help",
     L"&About",
