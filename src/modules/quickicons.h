@@ -13,3 +13,10 @@ void HandleQuickIconClick(UINT id);
 
 // Refresh just the icons (call after state toggles from any path).
 void RefreshQuickIcons();
+
+// Hover tooltips for the quick-access icons. ShowQuickIconTooltip is driven
+// from the main window's WM_NCMOUSEMOVE with the cursor in screen coords; it
+// shows / hides a tracking tooltip depending on which icon (if any) is under
+// the cursor. HideQuickIconTooltip is called from WM_NCMOUSELEAVE.
+void ShowQuickIconTooltip(POINT ptScreen);
+void HideQuickIconTooltip();

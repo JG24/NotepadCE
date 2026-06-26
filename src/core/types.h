@@ -109,6 +109,11 @@ struct AppState
     bool showLineNumbers = false;
     bool toolsEnabled = false;
     bool quickAccessIcons = false;
+    // Editor display extras — both OFF by default so a fresh start matches
+    // classic Notepad. Toggled from Edit > Settings; drawn as a GDI overlay
+    // in the editor's WM_PAINT (no RichEdit formatting touched).
+    bool highlightCurrentLine = false;
+    bool highlightOccurrences = false;
     int windowX = CW_USEDEFAULT;
     int windowY = CW_USEDEFAULT;
     int windowWidth = 640;

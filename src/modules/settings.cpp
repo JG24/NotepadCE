@@ -326,6 +326,8 @@ static void DoLoad()
     g_state.showLineNumbers = obj.getBool("showLineNumbers", g_state.showLineNumbers);
     g_state.toolsEnabled = obj.getBool("toolsEnabled", g_state.toolsEnabled);
     g_state.quickAccessIcons = obj.getBool("quickAccessIcons", g_state.quickAccessIcons);
+    g_state.highlightCurrentLine = obj.getBool("highlightCurrentLine", g_state.highlightCurrentLine);
+    g_state.highlightOccurrences = obj.getBool("highlightOccurrences", g_state.highlightOccurrences);
 
     auto recent = obj.getArr("recentFiles");
     g_state.recentFiles.clear();
@@ -398,6 +400,8 @@ static void DoSave()
     kvBool("showLineNumbers", g_state.showLineNumbers);
     kvBool("toolsEnabled", g_state.toolsEnabled);
     kvBool("quickAccessIcons", g_state.quickAccessIcons);
+    kvBool("highlightCurrentLine", g_state.highlightCurrentLine);
+    kvBool("highlightOccurrences", g_state.highlightOccurrences);
 
     out += "  \"recentFiles\": [";
     bool first = true;

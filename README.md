@@ -35,11 +35,13 @@ NotepadCE is a fork of [Legacy Notepad](https://github.com/forloopcodes/legacy-n
 - **Indent / dedent** (`Tab` / `Shift+Tab`) — shifts whole selected lines instead of replacing the selection with a tab.
 - **Auto-indent** — a new line inherits the leading whitespace of the previous one.
 - **Insert date and time** (`F5`) — with a configurable format.
-- **Smart rich-text paste** — automatic detection of pastes from Word / Outlook / browsers (via the `CF_HTML` clipboard format). List markers, Unicode bullets and numbered lists are converted to plain ASCII; paragraph structure is preserved. Pastes from other sources are inserted unchanged.
+- **Plain-text paste** — pasted content is always inserted as unformatted text in the editor's single font, exactly like the classic Notepad. Rich sources (Word / Outlook / browsers) keep their text and line breaks but drop fonts, colours and styling, so a paste never leaves a patchwork of typefaces behind.
+- **Insert special character** — a quick popup of common glyphs (`€ £ © ® ™ § ° • ·`) from a menu-bar icon, inserted at the caret.
 - **Line numbers** (gutter) with a small visual gap from the editor for readability.
 - **Word wrap** (toggled from the Format menu).
 - **Zoom** — `Ctrl++`, `Ctrl+-`, `Ctrl+0` (reset).
 - **Show special characters** — visualize spaces, tabs and line endings.
+- **Highlight current line** and **highlight all occurrences of the selected word** — optional, both off by default (toggled in Edit → Settings, to stay close to the classic Notepad); theme-aware translucent fills, no impact on the document itself.
 
 ### Search and navigation
 
@@ -51,9 +53,10 @@ NotepadCE is a fork of [Legacy Notepad](https://github.com/forloopcodes/legacy-n
 
 ### Files and encodings
 
-- **Full support for multiple encodings**: UTF-8, UTF-8 with BOM, UTF-16 LE, UTF-16 BE, ANSI.
-- **All line-ending flavors**: Windows (CRLF), Unix (LF), Macintosh (CR) — with auto-detection on load and a choice on save.
+- **Full support for multiple encodings**: UTF-8, UTF-8 with BOM, UTF-16 LE, UTF-16 BE, ANSI — auto-detected on load and selectable for the current document from the Format menu.
+- **All line-ending flavors**: Windows (CRLF), Unix (LF), Macintosh (CR) — auto-detected on load and switchable from the Format menu.
 - **Recent files** — quick access from the File menu.
+- **Open containing folder** and **copy the file path** — straight from the File menu.
 - **Printing** and **page setup** — through native system dialogs.
 - **Unsaved-changes prompt** on close.
 
@@ -64,7 +67,7 @@ NotepadCE is a fork of [Legacy Notepad](https://github.com/forloopcodes/legacy-n
 - **Three themes** — **Light**, **Dark** and **Matrix** (a near-black background with bright phosphor-green text), chosen from the View menu. The dark theme covers the main window, menus, status bar, dialogs and custom controls. No flicker when switching themes (this took some extra care around `CFE_AUTOBACKCOLOR` in RichEdit, so per-character background color does not bleed across theme changes).
 - **Owner-drawn menus** in dark mode — with proper hover handling on the menu bar (`WM_NCMOUSEMOVE` / `WM_NCMOUSELEAVE`).
 - **Status bar** with six sections: character / selection counter, total lines, current row, current column, encoding, line-ending format.
-- **Quick-access icons** on the menu bar (right-aligned): spell-checker, always-on-top, dark mode.
+- **Quick-access icons** on the menu bar (right-aligned): insert special character, spell-checker, theme toggle and always-on-top — each with a hover tooltip.
 - **Always-on-top** (View menu).
 - **Window transparency** — adjustable from 10% to 100%.
 - **Persistent settings** — chosen theme, font, language, status-bar layout and recent files are remembered between sessions.
@@ -93,6 +96,7 @@ NotepadCE is a fork of [Legacy Notepad](https://github.com/forloopcodes/legacy-n
 - **Change case** — UPPERCASE, lowercase, Title Case.
 - **Trim trailing whitespace**, and **convert tabs to spaces** or back.
 - **Reverse lines** and **join lines**.
+- **Remove empty lines** and **remove duplicate lines** (keeps the first occurrence, order preserved).
 
 Every tool acts on the current selection, or on the whole document when nothing is selected. While Tools is enabled, the same menu is also reachable from the editor's right-click context menu.
 
@@ -146,7 +150,7 @@ Every tool acts on the current selection, or on the whole document when nothing 
 
 - **Windows 8** or newer (`_WIN32_WINNT=0x0602`). Tested on **Windows 11**.
 - No runtime dependencies — everything is linked statically (GCC: `-static -static-libgcc -static-libstdc++`).
-- Single executable (~491 KB).
+- Single executable (~455 KB).
 
 ---
 
@@ -248,8 +252,7 @@ src/
     ├── spellchecker.{h,cpp} — Windows Spell Checking API
     ├── tools.{h,cpp}        — normalization, base64, SHA1, MD5
     ├── gutter.{h,cpp}       — line numbers (custom-drawn)
-    ├── quickicons.{h,cpp}   — menu-bar quick-access icons
-    └── rtfpaste.{h,cpp}     — heuristic post-processing of Word pastes
+    └── quickicons.{h,cpp}   — menu-bar quick-access icons
 ```
 
 ### Design principles

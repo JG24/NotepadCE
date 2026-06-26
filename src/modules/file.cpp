@@ -176,13 +176,22 @@ std::vector<BYTE> EncodeText(const std::wstring &text, Encoding enc, LineEnding 
         [[fallthrough]];
     case Encoding::UTF8:
     {
-        int len = WideCharToMultiByte(CP_UTF8, 0, converted.c_str(), -1, nullptr, 0, nullptr, nullptr);
-        if (len > 1)
+        // Pass the explicit source length (not -1): this excludes the NUL
+        // terminator, so `len` is the exact payload size and the destination
+        // buffer is sized to match. Using -1 made WideCharToMultiByte also
+        // write the trailing NUL — one byte past a buffer sized len-1, which
+        // silently corrupted the heap (crash deferred to the vector's free).
+        int srcLen = static_cast<int>(converted.size());
+        if (srcLen > 0)
         {
-            size_t offset = result.size();
-            result.resize(offset + len - 1);
-            WideCharToMultiByte(CP_UTF8, 0, converted.c_str(), -1,
-                                reinterpret_cast<char *>(result.data() + offset), len, nullptr, nullptr);
+            int len = WideCharToMultiByte(CP_UTF8, 0, converted.c_str(), srcLen, nullptr, 0, nullptr, nullptr);
+            if (len > 0)
+            {
+                size_t offset = result.size();
+                result.resize(offset + len);
+                WideCharToMultiByte(CP_UTF8, 0, converted.c_str(), srcLen,
+                                    reinterpret_cast<char *>(result.data() + offset), len, nullptr, nullptr);
+            }
         }
         break;
     }
@@ -206,12 +215,18 @@ std::vector<BYTE> EncodeText(const std::wstring &text, Encoding enc, LineEnding 
         break;
     case Encoding::ANSI:
     {
-        int len = WideCharToMultiByte(CP_ACP, 0, converted.c_str(), -1, nullptr, 0, nullptr, nullptr);
-        if (len > 1)
+        // Same off-by-one fix as the UTF-8 branch above: explicit source
+        // length, buffer sized to the exact payload, no stray NUL written.
+        int srcLen = static_cast<int>(converted.size());
+        if (srcLen > 0)
         {
-            result.resize(len - 1);
-            WideCharToMultiByte(CP_ACP, 0, converted.c_str(), -1,
-                                reinterpret_cast<char *>(result.data()), len, nullptr, nullptr);
+            int len = WideCharToMultiByte(CP_ACP, 0, converted.c_str(), srcLen, nullptr, 0, nullptr, nullptr);
+            if (len > 0)
+            {
+                result.resize(len);
+                WideCharToMultiByte(CP_ACP, 0, converted.c_str(), srcLen,
+                                    reinterpret_cast<char *>(result.data()), len, nullptr, nullptr);
+            }
         }
         break;
     }

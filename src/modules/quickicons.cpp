@@ -14,6 +14,8 @@
 #include "spellchecker.h"
 #include "resource.h"
 #include "ui.h"
+#include "lang/lang.h"
+#include <commctrl.h>
 #include <cmath>
 
 static const int ICON_W = 30;
@@ -32,8 +34,28 @@ static bool IconState(UINT id)
 
 bool IsQuickIconId(UINT id)
 {
-    return id == IDM_QUICK_SPELLCHECK || id == IDM_QUICK_ONTOP || id == IDM_QUICK_DARKMODE;
+    return id == IDM_QUICK_SPELLCHECK || id == IDM_QUICK_ONTOP ||
+           id == IDM_QUICK_DARKMODE || id == IDM_QUICK_INSERTCHAR;
 }
+
+// The nine glyphs offered by the insert-special-character popup, in the
+// order they appear. Shared by the popup builder and the click handler.
+struct SpecialChar
+{
+    UINT id;
+    const wchar_t *glyph;
+};
+static const SpecialChar kSpecialChars[] = {
+    { IDM_INSCHAR_EURO,       L"€" }, // €
+    { IDM_INSCHAR_POUND,      L"£" }, // £
+    { IDM_INSCHAR_COPYRIGHT,  L"©" }, // ©
+    { IDM_INSCHAR_REGISTERED, L"®" }, // ®
+    { IDM_INSCHAR_TRADEMARK,  L"™" }, // ™
+    { IDM_INSCHAR_SECTION,    L"§" }, // §
+    { IDM_INSCHAR_DEGREE,     L"°" }, // °
+    { IDM_INSCHAR_BULLET,     L"•" }, // •
+    { IDM_INSCHAR_MIDDLEDOT,  L"·" }, // ·
+};
 
 static int FindMenuItemIndex(HMENU hMenu, UINT id)
 {
@@ -50,7 +72,13 @@ void UpdateQuickIconsVisibility()
     if (!hMenu)
         return;
 
-    bool present = FindMenuItemIndex(hMenu, IDM_QUICK_SPELLCHECK) != -1;
+    // Display order, left to right: insert special char, spell check,
+    // theme toggle, always on top.
+    const UINT ids[] = { IDM_QUICK_INSERTCHAR, IDM_QUICK_SPELLCHECK,
+                         IDM_QUICK_DARKMODE, IDM_QUICK_ONTOP };
+    const int count = static_cast<int>(sizeof(ids) / sizeof(ids[0]));
+
+    bool present = FindMenuItemIndex(hMenu, IDM_QUICK_INSERTCHAR) != -1;
 
     if (g_state.quickAccessIcons)
     {
@@ -59,11 +87,10 @@ void UpdateQuickIconsVisibility()
             DrawMenuBar(g_hwndMain);
             return;
         }
-        // Insert three owner-drawn items at the end of the menu bar.
-        // Only the first one needs MFT_RIGHTJUSTIFY — all items after a
-        // right-justified one are also pushed right.
-        const UINT ids[] = { IDM_QUICK_SPELLCHECK, IDM_QUICK_ONTOP, IDM_QUICK_DARKMODE };
-        for (int i = 0; i < 3; ++i)
+        // Insert the owner-drawn items at the end of the menu bar. Only the
+        // first one needs MFT_RIGHTJUSTIFY — every item after a right-
+        // justified one is also pushed right, preserving the order above.
+        for (int i = 0; i < count; ++i)
         {
             MENUITEMINFOW mii = {};
             mii.cbSize = sizeof(mii);
@@ -80,13 +107,12 @@ void UpdateQuickIconsVisibility()
     {
         if (!present)
             return;
-        int idx;
-        while ((idx = FindMenuItemIndex(hMenu, IDM_QUICK_SPELLCHECK)) != -1)
-            RemoveMenu(hMenu, idx, MF_BYPOSITION);
-        while ((idx = FindMenuItemIndex(hMenu, IDM_QUICK_ONTOP)) != -1)
-            RemoveMenu(hMenu, idx, MF_BYPOSITION);
-        while ((idx = FindMenuItemIndex(hMenu, IDM_QUICK_DARKMODE)) != -1)
-            RemoveMenu(hMenu, idx, MF_BYPOSITION);
+        for (int i = 0; i < count; ++i)
+        {
+            int idx;
+            while ((idx = FindMenuItemIndex(hMenu, ids[i])) != -1)
+                RemoveMenu(hMenu, idx, MF_BYPOSITION);
+        }
     }
     DrawMenuBar(g_hwndMain);
 }
@@ -244,6 +270,28 @@ static void DrawDarkLightIcon(HDC hdc, RECT rc, bool isDark, bool dark)
     DeleteObject(brush);
 }
 
+static void DrawInsertCharIcon(HDC hdc, RECT rc, bool dark)
+{
+    int cx = (rc.left + rc.right) / 2;
+    int cy = (rc.top + rc.bottom) / 2;
+
+    // Not a toggle — always drawn in a plain foreground colour.
+    COLORREF c = dark ? RGB(210, 210, 210) : RGB(70, 70, 70);
+
+    // Omega is the conventional "insert symbol" glyph.
+    HFONT hFont = CreateFontW(16, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+                              DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                              CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+    HGDIOBJ oldFont = SelectObject(hdc, hFont);
+    SetTextColor(hdc, c);
+    SetBkMode(hdc, TRANSPARENT);
+    SIZE sz{};
+    GetTextExtentPoint32W(hdc, L"Ω", 1, &sz);
+    TextOutW(hdc, cx - sz.cx / 2, cy - sz.cy / 2, L"Ω", 1);
+    SelectObject(hdc, oldFont);
+    DeleteObject(hFont);
+}
+
 // ---- Item drawing ----------------------------------------------------------
 
 void DrawQuickIconItem(const DRAWITEMSTRUCT *dis)
@@ -281,6 +329,9 @@ void DrawQuickIconItem(const DRAWITEMSTRUCT *dis)
     case IDM_QUICK_DARKMODE:
         DrawDarkLightIcon(dis->hDC, dis->rcItem, state, dark);
         break;
+    case IDM_QUICK_INSERTCHAR:
+        DrawInsertCharIcon(dis->hDC, dis->rcItem, dark);
+        break;
     }
 }
 
@@ -312,6 +363,152 @@ void HandleQuickIconClick(UINT id)
     case IDM_QUICK_DARKMODE:
         ToggleDarkMode();
         break;
+    case IDM_QUICK_INSERTCHAR:
+    {
+        // Pop up the special-character list right under the icon and insert
+        // the chosen glyph at the caret. TPM_RETURNCMD hands the selected
+        // command back here, so no extra WM_COMMAND cases are needed.
+        HideQuickIconTooltip(); // don't leave a tip floating over the popup
+        const LangStrings &s = GetLangStrings();
+        const LStr *names[] = {
+            &s.scEuro, &s.scPound, &s.scCopyright, &s.scRegistered, &s.scTrademark,
+            &s.scSection, &s.scDegree, &s.scBullet, &s.scMiddleDot
+        };
+        const int n = static_cast<int>(sizeof(kSpecialChars) / sizeof(kSpecialChars[0]));
+        HMENU pop = CreatePopupMenu();
+        if (!pop)
+            break;
+        for (int i = 0; i < n; ++i)
+        {
+            // glyph on the left, name right-aligned via the tab column.
+            std::wstring label = std::wstring(kSpecialChars[i].glyph) + L"\t" + *names[i];
+            AppendMenuW(pop, MF_STRING, kSpecialChars[i].id, label.c_str());
+        }
+        RECT rc = {};
+        int idx = hMenu ? FindMenuItemIndex(hMenu, IDM_QUICK_INSERTCHAR) : -1;
+        if (idx >= 0)
+            GetMenuItemRect(g_hwndMain, hMenu, static_cast<UINT>(idx), &rc);
+        UINT cmd = static_cast<UINT>(TrackPopupMenu(pop, TPM_RETURNCMD | TPM_LEFTALIGN | TPM_TOPALIGN,
+                                                    rc.left, rc.bottom, 0, g_hwndMain, nullptr));
+        DestroyMenu(pop);
+        if (cmd >= IDM_INSCHAR_FIRST && cmd <= IDM_INSCHAR_LAST && g_hwndEditor)
+        {
+            const wchar_t *glyph = kSpecialChars[cmd - IDM_INSCHAR_FIRST].glyph;
+            SendMessageW(g_hwndEditor, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(glyph));
+            SetFocus(g_hwndEditor);
+        }
+        break;
+    }
     }
     DrawMenuBar(g_hwndMain);
+}
+
+// ---- Hover tooltips --------------------------------------------------------
+//
+// The icons are owner-drawn menu-bar items, not child windows, so a normal
+// tool-rectangle tooltip can't be attached to them. Instead we run a single
+// tracking tooltip (TTF_TRACK | TTF_ABSOLUTE) that the main window drives
+// from WM_NCMOUSEMOVE: we hit-test the cursor against each icon's on-screen
+// rect (GetMenuItemRect) and, when it lands on one, position the tip just
+// below the icon and activate it. WM_NCMOUSELEAVE (and moving off the icons)
+// deactivates it. g_tooltipIconId tracks which icon's tip is currently up so
+// we update only on a change — no per-pixel flicker.
+
+static HWND g_quickTooltip = nullptr;
+static UINT g_tooltipIconId = 0; // 0 = nothing shown
+
+static const wchar_t *QuickIconTooltipText(UINT id)
+{
+    const LangStrings &s = GetLangStrings();
+    switch (id)
+    {
+    case IDM_QUICK_SPELLCHECK: return s.tipQuickSpell.c_str();
+    case IDM_QUICK_ONTOP:      return s.tipQuickOnTop.c_str();
+    case IDM_QUICK_DARKMODE:   return s.tipQuickTheme.c_str();
+    case IDM_QUICK_INSERTCHAR: return s.tipQuickInsertChar.c_str();
+    }
+    return L"";
+}
+
+static void EnsureQuickTooltip()
+{
+    if (g_quickTooltip || !g_hwndMain)
+        return;
+    g_quickTooltip = CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASSW, nullptr,
+                                     WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX,
+                                     CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
+                                     g_hwndMain, nullptr, GetModuleHandleW(nullptr), nullptr);
+    if (!g_quickTooltip)
+        return;
+    TOOLINFOW ti = {};
+    ti.cbSize = sizeof(ti);
+    ti.uFlags = TTF_TRACK | TTF_ABSOLUTE;
+    ti.hwnd = g_hwndMain;
+    ti.uId = 1;
+    ti.lpszText = const_cast<LPWSTR>(L"");
+    SendMessageW(g_quickTooltip, TTM_ADDTOOLW, 0, reinterpret_cast<LPARAM>(&ti));
+}
+
+void HideQuickIconTooltip()
+{
+    if (!g_quickTooltip || g_tooltipIconId == 0)
+        return;
+    TOOLINFOW ti = {};
+    ti.cbSize = sizeof(ti);
+    ti.hwnd = g_hwndMain;
+    ti.uId = 1;
+    SendMessageW(g_quickTooltip, TTM_TRACKACTIVATE, FALSE, reinterpret_cast<LPARAM>(&ti));
+    g_tooltipIconId = 0;
+}
+
+void ShowQuickIconTooltip(POINT ptScreen)
+{
+    if (!g_state.quickAccessIcons)
+    {
+        HideQuickIconTooltip();
+        return;
+    }
+    HMENU hMenu = GetMenu(g_hwndMain);
+    if (!hMenu)
+        return;
+    EnsureQuickTooltip();
+    if (!g_quickTooltip)
+        return;
+
+    const UINT ids[] = { IDM_QUICK_INSERTCHAR, IDM_QUICK_SPELLCHECK,
+                         IDM_QUICK_DARKMODE, IDM_QUICK_ONTOP };
+    UINT hitId = 0;
+    RECT hitRc = {};
+    for (UINT id : ids)
+    {
+        int idx = FindMenuItemIndex(hMenu, id);
+        if (idx < 0)
+            continue;
+        RECT rc;
+        if (GetMenuItemRect(g_hwndMain, hMenu, static_cast<UINT>(idx), &rc) && PtInRect(&rc, ptScreen))
+        {
+            hitId = id;
+            hitRc = rc;
+            break;
+        }
+    }
+
+    if (hitId == 0)
+    {
+        HideQuickIconTooltip();
+        return;
+    }
+    if (hitId == g_tooltipIconId)
+        return; // already showing this icon's tip — leave it be
+
+    g_tooltipIconId = hitId;
+    TOOLINFOW ti = {};
+    ti.cbSize = sizeof(ti);
+    ti.hwnd = g_hwndMain;
+    ti.uId = 1;
+    ti.lpszText = const_cast<LPWSTR>(QuickIconTooltipText(hitId));
+    SendMessageW(g_quickTooltip, TTM_UPDATETIPTEXTW, 0, reinterpret_cast<LPARAM>(&ti));
+    SendMessageW(g_quickTooltip, TTM_TRACKPOSITION, 0,
+                 static_cast<LPARAM>(MAKELONG(hitRc.left, hitRc.bottom + 2)));
+    SendMessageW(g_quickTooltip, TTM_TRACKACTIVATE, TRUE, reinterpret_cast<LPARAM>(&ti));
 }

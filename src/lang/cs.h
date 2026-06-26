@@ -124,4 +124,26 @@ inline LangStrings g_langCS = {
 
     L"Windows (CRLF)",
     L"Unix (LF)",
-    L"Macintosh (CR)"};
+    L"Macintosh (CR)",
+
+    L"Kontrola pravopisu",
+    L"Vždy navrchu",
+    L"Světlý / tmavý motiv",
+
+    L"Vložit speciální znak",
+    L"Euro",
+    L"Libra",
+    L"Copyright",
+    L"Registrováno",
+    L"Ochranná známka",
+    L"Paragraf",
+    L"Stupeň",
+    L"Odrážka",
+    L"Prostřední tečka",
+
+    L"Zvýraznit aktuální &řádek",
+    L"Zvýraznit &shody",
+    L"Konce řá&dků",
+    L"Kó&dování",
+    L"Otevřít &složku souboru",
+    L"&Kopírovat cestu k souboru"};

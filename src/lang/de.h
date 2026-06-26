@@ -124,4 +124,26 @@ inline LangStrings g_langDE = {
 
     L"Windows (CRLF)",
     L"Unix (LF)",
-    L"Macintosh (CR)"};
+    L"Macintosh (CR)",
+
+    L"Rechtschreibprüfung",
+    L"Immer im Vordergrund",
+    L"Helles / dunkles Design",
+
+    L"Sonderzeichen einfügen",
+    L"Euro",
+    L"Pfund",
+    L"Copyright",
+    L"Registriert",
+    L"Marke",
+    L"Paragraf",
+    L"Grad",
+    L"Aufzählungszeichen",
+    L"Mittelpunkt",
+
+    L"Aktuelle &Zeile hervorheben",
+    L"&Übereinstimmungen hervorheben",
+    L"Zeilen&umbrüche",
+    L"&Kodierung",
+    L"Enthaltenden &Ordner öffnen",
+    L"Datei&pfad kopieren"};

@@ -124,4 +124,26 @@ inline LangStrings g_langEN = {
 
     L"Windows (CRLF)",
     L"Unix (LF)",
-    L"Macintosh (CR)"};
+    L"Macintosh (CR)",
+
+    L"Spell check",
+    L"Always on top",
+    L"Light / dark theme",
+
+    L"Insert special character",
+    L"Euro",
+    L"Pound",
+    L"Copyright",
+    L"Registered",
+    L"Trademark",
+    L"Section",
+    L"Degree",
+    L"Bullet",
+    L"Middle dot",
+
+    L"Highlight Current &Line",
+    L"Highlight &Matches",
+    L"&Line Endings",
+    L"&Encoding",
+    L"Open Containing &Folder",
+    L"&Copy File Path"};

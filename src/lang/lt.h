@@ -124,4 +124,26 @@ inline LangStrings g_langLT = {
 
     L"Windows (CRLF)",
     L"Unix (LF)",
-    L"Macintosh (CR)"};
+    L"Macintosh (CR)",
+
+    L"Rašybos tikrinimas",
+    L"Visada viršuje",
+    L"Šviesi / tamsi tema",
+
+    L"Įterpti specialų simbolį",
+    L"Euras",
+    L"Svaras",
+    L"Autorių teisės",
+    L"Registruota",
+    L"Prekės ženklas",
+    L"Paragrafas",
+    L"Laipsnis",
+    L"Ženklelis",
+    L"Vidurinis taškas",
+
+    L"Paryškinti dabartinę &eilutę",
+    L"Paryškinti &atitikmenis",
+    L"Eilučių pa&baiga",
+    L"Koduo&tė",
+    L"Atverti &aplanką su failu",
+    L"&Kopijuoti failo kelią"};

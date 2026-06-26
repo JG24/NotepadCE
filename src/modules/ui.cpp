@@ -26,7 +26,7 @@
 void UpdateTitle()
 {
     const auto &lang = GetLangStrings();
-    std::wstring filename = g_state.filePath.empty() ? lang.untitled : PathFindFileNameW(g_state.filePath.c_str());
+    std::wstring filename = g_state.filePath.empty() ? lang.untitled.c_str() : PathFindFileNameW(g_state.filePath.c_str());
     std::wstring title = (g_state.modified ? L"*" : L"") + filename + L" - " + lang.appName;
     SetWindowTextW(g_hwndMain, title.c_str());
 }

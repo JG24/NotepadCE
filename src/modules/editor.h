@@ -29,4 +29,5 @@ void DeleteWordBackward();
 void DeleteWordForward();
 void DuplicateLine();
 void DeleteLine();
+void OnEditorSelChangeHighlights();
 LRESULT CALLBACK EditorSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);

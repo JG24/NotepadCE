@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(NotepadCE VERSION 0.8.5 LANGUAGES CXX)
+project(NotepadCE VERSION 0.9 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -84,6 +84,7 @@ target_link_libraries(NotepadCE PRIVATE
     shell32
     user32
     gdi32
+    msimg32
     kernel32
     dwmapi
     uxtheme
@@ -101,7 +102,11 @@ if(NOT MSVC)
     # Strip during link instead of post-build: avoids a second file-write step
     # that AV/Defender real-time scanning frequently blocks on Windows.
     # --gc-sections discards sections no longer referenced after linking.
-    target_link_options(NotepadCE PRIVATE -s -Wl,--gc-sections)
+    # Keep symbols in Debug builds so crashes can be backtraced (gdb/addr2line).
+    target_link_options(NotepadCE PRIVATE -Wl,--gc-sections)
+    if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
+        target_link_options(NotepadCE PRIVATE -s)
+    endif()
 endif()
 
 # Build timestamp — generates build_info.h (#define BUILD_NUMBER) used by

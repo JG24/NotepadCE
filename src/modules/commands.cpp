@@ -38,7 +38,7 @@ bool ConfirmDiscard()
             return true;
     }
     const auto &lang = GetLangStrings();
-    std::wstring filename = g_state.filePath.empty() ? lang.untitled : PathFindFileNameW(g_state.filePath.c_str());
+    std::wstring filename = g_state.filePath.empty() ? lang.untitled.c_str() : PathFindFileNameW(g_state.filePath.c_str());
     std::wstring msg;
     msg.reserve(lang.msgSaveChanges.size() + filename.size() + 2);
     msg = lang.msgSaveChanges;
@@ -118,7 +118,7 @@ void FilePrint()
     DOCINFOW di = {};
     di.cbSize = sizeof(di);
     const auto &lang = GetLangStrings();
-    std::wstring docName = g_state.filePath.empty() ? lang.untitled : PathFindFileNameW(g_state.filePath.c_str());
+    std::wstring docName = g_state.filePath.empty() ? lang.untitled.c_str() : PathFindFileNameW(g_state.filePath.c_str());
     di.lpszDocName = docName.c_str();
     if (StartDocW(hDC, &di) > 0)
     {
@@ -185,7 +185,16 @@ void EditCut() { SendMessageW(g_hwndEditor, WM_CUT, 0, 0); }
 void EditCopy() { SendMessageW(g_hwndEditor, WM_COPY, 0, 0); }
 void EditPaste() { SendMessageW(g_hwndEditor, WM_PASTE, 0, 0); }
 void EditDelete() { SendMessageW(g_hwndEditor, WM_CLEAR, 0, 0); }
-void EditSelectAll() { SendMessageW(g_hwndEditor, EM_SETSEL, 0, -1); }
+void EditSelectAll()
+{
+    // On an empty document EM_SETSEL(0, -1) still "selects" RichEdit's
+    // mandatory trailing paragraph mark, drawing a stray selection sliver
+    // even though no real character exists (EM_GETSEL then reports 0,0).
+    // Classic Notepad's EDIT control selects nothing on empty — match that.
+    if (SendMessageW(g_hwndEditor, WM_GETTEXTLENGTH, 0, 0) == 0)
+        return;
+    SendMessageW(g_hwndEditor, EM_SETSEL, 0, -1);
+}
 
 void EditTimeDate()
 {

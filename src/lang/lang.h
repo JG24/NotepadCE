@@ -2,6 +2,7 @@
 
 #include <windows.h>
 #include <string>
+#include <cwchar>
 
 enum class LangID
 {
@@ -15,134 +16,189 @@ enum class LangID
     RU
 };
 
+// Lightweight, non-owning, NUL-terminated wide-string handle. Holds only a
+// pointer to a string literal, so the eight LangStrings tables below become
+// pure constant data — no per-field std::wstring construction at startup
+// (that was ~70 KB of init code across all languages). Exposes just the slice
+// of the std::wstring interface the call sites use: implicit const wchar_t*
+// conversion, c_str(), size(), empty().
+struct LStr
+{
+    const wchar_t *s;
+    constexpr LStr(const wchar_t *p = L"") : s(p) {}
+    constexpr operator const wchar_t *() const { return s; }
+    const wchar_t *c_str() const { return s; }
+    size_t size() const { return wcslen(s); }
+    bool empty() const { return s[0] == L'\0'; }
+};
+
+// std::operator+ are templates, so the implicit LStr -> const wchar_t*
+// conversion can't kick in for them (template deduction ignores user
+// conversions). These non-template overloads let every existing
+// `lang.field + ...` concatenation keep compiling unchanged.
+inline std::wstring operator+(LStr a, const wchar_t *b) { return std::wstring(a.s) + b; }
+inline std::wstring operator+(const wchar_t *a, LStr b) { return a + std::wstring(b.s); }
+inline std::wstring operator+(LStr a, const std::wstring &b) { return a.s + b; }
+inline std::wstring operator+(const std::wstring &a, LStr b) { return a + b.s; }
+inline std::wstring operator+(LStr a, LStr b) { return std::wstring(a.s) + b.s; }
+
 struct LangStrings
 {
-    std::wstring appName;
-    std::wstring untitled;
+    LStr appName;
+    LStr untitled;
 
-    std::wstring menuFile;
-    std::wstring menuNew;
-    std::wstring menuOpen;
-    std::wstring menuSave;
-    std::wstring menuSaveAs;
-    std::wstring menuPrint;
-    std::wstring menuPageSetup;
-    std::wstring menuExit;
-    std::wstring menuRecentFiles;
+    LStr menuFile;
+    LStr menuNew;
+    LStr menuOpen;
+    LStr menuSave;
+    LStr menuSaveAs;
+    LStr menuPrint;
+    LStr menuPageSetup;
+    LStr menuExit;
+    LStr menuRecentFiles;
 
-    std::wstring menuEdit;
-    std::wstring menuUndo;
-    std::wstring menuRedo;
-    std::wstring menuCut;
-    std::wstring menuCopy;
-    std::wstring menuPaste;
-    std::wstring menuDelete;
-    std::wstring menuFind;
-    std::wstring menuFindNext;
-    std::wstring menuFindPrev;
-    std::wstring menuReplace;
-    std::wstring menuGoTo;
-    std::wstring menuSelectAll;
-    std::wstring menuTimeDate;
+    LStr menuEdit;
+    LStr menuUndo;
+    LStr menuRedo;
+    LStr menuCut;
+    LStr menuCopy;
+    LStr menuPaste;
+    LStr menuDelete;
+    LStr menuFind;
+    LStr menuFindNext;
+    LStr menuFindPrev;
+    LStr menuReplace;
+    LStr menuGoTo;
+    LStr menuSelectAll;
+    LStr menuTimeDate;
 
-    std::wstring menuFormat;
-    std::wstring menuWordWrap;
-    std::wstring menuFont;
+    LStr menuFormat;
+    LStr menuWordWrap;
+    LStr menuFont;
 
-    std::wstring menuView;
-    std::wstring menuZoomIn;
-    std::wstring menuZoomOut;
-    std::wstring menuZoomDefault;
-    std::wstring menuStatusBar;
-    std::wstring menuThemeLight;
-    std::wstring menuThemeDark;
-    std::wstring menuThemeMatrix;
-    std::wstring menuShowSpecial;
-    std::wstring menuLineNumbers;
-    std::wstring menuTransparency;
-    std::wstring menuAlwaysOnTop;
+    LStr menuView;
+    LStr menuZoomIn;
+    LStr menuZoomOut;
+    LStr menuZoomDefault;
+    LStr menuStatusBar;
+    LStr menuThemeLight;
+    LStr menuThemeDark;
+    LStr menuThemeMatrix;
+    LStr menuShowSpecial;
+    LStr menuLineNumbers;
+    LStr menuTransparency;
+    LStr menuAlwaysOnTop;
 
-    std::wstring menuSettings;
-    std::wstring menuSettingsDateFormat;
-    std::wstring menuSettingsSpellCheck;
-    std::wstring menuSettingsTools;
-    std::wstring menuSettingsQuickIcons;
+    LStr menuSettings;
+    LStr menuSettingsDateFormat;
+    LStr menuSettingsSpellCheck;
+    LStr menuSettingsTools;
+    LStr menuSettingsQuickIcons;
 
-    std::wstring menuTools;
-    std::wstring menuToolsNormalize;
-    std::wstring menuToolsBase64;
-    std::wstring menuToolsSha1;
-    std::wstring menuToolsMd5;
-    std::wstring menuToolsUppercase;
-    std::wstring menuToolsLowercase;
-    std::wstring menuToolsTitleCase;
-    std::wstring menuToolsTrimTrailing;
-    std::wstring menuToolsTabsToSpaces;
-    std::wstring menuToolsSpacesToTabs;
-    std::wstring menuToolsReverseLines;
-    std::wstring menuToolsJoinLines;
-    std::wstring menuToolsRemoveEmpty;
-    std::wstring menuToolsRemoveDupes;
+    LStr menuTools;
+    LStr menuToolsNormalize;
+    LStr menuToolsBase64;
+    LStr menuToolsSha1;
+    LStr menuToolsMd5;
+    LStr menuToolsUppercase;
+    LStr menuToolsLowercase;
+    LStr menuToolsTitleCase;
+    LStr menuToolsTrimTrailing;
+    LStr menuToolsTabsToSpaces;
+    LStr menuToolsSpacesToTabs;
+    LStr menuToolsReverseLines;
+    LStr menuToolsJoinLines;
+    LStr menuToolsRemoveEmpty;
+    LStr menuToolsRemoveDupes;
 
-    std::wstring menuHelp;
-    std::wstring menuAbout;
+    LStr menuHelp;
+    LStr menuAbout;
 
     // The "Language" submenu label is translated; the individual language
     // entries below it are NOT — they are shown as autonyms (each language
     // in its own name) so they stay recognisable whatever the current UI
     // language is. See the hard-coded list in UpdateMenuStrings().
-    std::wstring menuLanguage;
+    LStr menuLanguage;
 
-    std::wstring dialogFind;
-    std::wstring dialogFindReplace;
-    std::wstring dialogGoTo;
-    std::wstring dialogTransparency;
-    std::wstring dialogFindLabel;
-    std::wstring dialogReplaceLabel;
-    std::wstring dialogFindNext;
-    std::wstring dialogReplace;
-    std::wstring dialogReplaceAll;
-    std::wstring dialogClose;
-    std::wstring dialogLineNumber;
-    std::wstring dialogOK;
-    std::wstring dialogCancel;
-    std::wstring dialogOpacityLabel;
-    std::wstring dialogDateFormatTitle;
-    std::wstring dialogDateFormatLabel;
-    std::wstring dialogDateFormatPreview;
-    std::wstring dialogDateFormatHelp;
-    std::wstring dialogDateFormatRestore;
+    LStr dialogFind;
+    LStr dialogFindReplace;
+    LStr dialogGoTo;
+    LStr dialogTransparency;
+    LStr dialogFindLabel;
+    LStr dialogReplaceLabel;
+    LStr dialogFindNext;
+    LStr dialogReplace;
+    LStr dialogReplaceAll;
+    LStr dialogClose;
+    LStr dialogLineNumber;
+    LStr dialogOK;
+    LStr dialogCancel;
+    LStr dialogOpacityLabel;
+    LStr dialogDateFormatTitle;
+    LStr dialogDateFormatLabel;
+    LStr dialogDateFormatPreview;
+    LStr dialogDateFormatHelp;
+    LStr dialogDateFormatRestore;
 
-    std::wstring msgCannotFind;
-    std::wstring msgSaveChanges;
-    std::wstring msgCannotOpenFile;
-    std::wstring msgCannotSaveFile;
-    std::wstring msgError;
-    std::wstring msgAbout;
+    LStr msgCannotFind;
+    LStr msgSaveChanges;
+    LStr msgCannotOpenFile;
+    LStr msgCannotSaveFile;
+    LStr msgError;
+    LStr msgAbout;
 
-    std::wstring aboutTitle;
-    std::wstring aboutTagline;
-    std::wstring aboutAuthor;
-    std::wstring aboutBuiltOn;
-    std::wstring aboutTech;
-    std::wstring aboutOriginalAuthor;
-    std::wstring aboutBuild;
+    LStr aboutTitle;
+    LStr aboutTagline;
+    LStr aboutAuthor;
+    LStr aboutBuiltOn;
+    LStr aboutTech;
+    LStr aboutOriginalAuthor;
+    LStr aboutBuild;
 
-    std::wstring statusChars;
-    std::wstring statusLines;
-    std::wstring statusLine;
-    std::wstring statusColumn;
-    std::wstring statusSelected;
+    LStr statusChars;
+    LStr statusLines;
+    LStr statusLine;
+    LStr statusColumn;
+    LStr statusSelected;
 
-    std::wstring encodingUTF8;
-    std::wstring encodingUTF8BOM;
-    std::wstring encodingUTF16LE;
-    std::wstring encodingUTF16BE;
-    std::wstring encodingANSI;
+    LStr encodingUTF8;
+    LStr encodingUTF8BOM;
+    LStr encodingUTF16LE;
+    LStr encodingUTF16BE;
+    LStr encodingANSI;
 
-    std::wstring lineEndingCRLF;
-    std::wstring lineEndingLF;
-    std::wstring lineEndingCR;
+    LStr lineEndingCRLF;
+    LStr lineEndingLF;
+    LStr lineEndingCR;
+
+    // Hover tooltips for the right-justified quick-access menu-bar icons
+    // (spell check / always on top / theme toggle). Plain text, no
+    // accelerator ampersands — they are shown in a tracking tooltip.
+    LStr tipQuickSpell;
+    LStr tipQuickOnTop;
+    LStr tipQuickTheme;
+    LStr tipQuickInsertChar;
+
+    // Names shown next to each glyph in the special-character popup
+    // (opened from the quick-access "insert symbol" icon).
+    LStr scEuro;
+    LStr scPound;
+    LStr scCopyright;
+    LStr scRegistered;
+    LStr scTrademark;
+    LStr scSection;
+    LStr scDegree;
+    LStr scBullet;
+    LStr scMiddleDot;
+
+    // Edit > Settings toggles (highlight current line / all matches) and
+    // Format submenus (line endings / encoding) and File menu extras.
+    LStr menuSettingsHighlightLine;
+    LStr menuSettingsHighlightWord;
+    LStr menuFormatLineEndings;
+    LStr menuFormatEncoding;
+    LStr menuFileOpenFolder;
+    LStr menuFileCopyPath;
 };
 
 void InitLanguage();

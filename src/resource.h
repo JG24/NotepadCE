@@ -20,7 +20,7 @@
 
 // Human-readable application version, shown in the About dialog. Keep in
 // sync with the VERSION in CMakeLists.txt and app.manifest.
-#define APP_VERSION L"0.8.5"
+#define APP_VERSION L"0.9"
 
 #define IDC_EDITOR 1000
 #define IDC_STATUSBAR 1001
@@ -32,6 +32,8 @@
 #define IDM_FILE_PRINT 40005
 #define IDM_FILE_PAGESETUP 40006
 #define IDM_FILE_EXIT 40007
+#define IDM_FILE_OPENFOLDER 40008
+#define IDM_FILE_COPYPATH 40009
 
 #define IDM_FILE_RECENT_BASE 40100
 
@@ -84,6 +86,18 @@
 #define IDM_EDIT_SETTINGS_SPELLCHECK 40025
 #define IDM_EDIT_SETTINGS_TOOLS 40026
 #define IDM_EDIT_SETTINGS_QUICKICONS 40027
+#define IDM_EDIT_SETTINGS_HIGHLIGHTLINE 40058
+#define IDM_EDIT_SETTINGS_HIGHLIGHTWORD 40059
+
+// Format > Line Endings (radio) and Format > Encoding (radio).
+#define IDM_FORMAT_LE_CRLF 40060
+#define IDM_FORMAT_LE_LF 40061
+#define IDM_FORMAT_LE_CR 40062
+#define IDM_FORMAT_ENC_UTF8 40065
+#define IDM_FORMAT_ENC_UTF8BOM 40066
+#define IDM_FORMAT_ENC_UTF16LE 40067
+#define IDM_FORMAT_ENC_UTF16BE 40068
+#define IDM_FORMAT_ENC_ANSI 40069
 
 #define IDM_TOOLS_NORMALIZE 40200
 #define IDM_TOOLS_BASE64 40201
@@ -103,6 +117,21 @@
 #define IDM_QUICK_SPELLCHECK 40300
 #define IDM_QUICK_ONTOP 40301
 #define IDM_QUICK_DARKMODE 40302
+#define IDM_QUICK_INSERTCHAR 40303
+
+// Special-character insert commands — the list popped up from the
+// quick-access "insert symbol" icon. Consecutive; order matches the popup.
+#define IDM_INSCHAR_FIRST 40320
+#define IDM_INSCHAR_EURO 40320
+#define IDM_INSCHAR_POUND 40321
+#define IDM_INSCHAR_COPYRIGHT 40322
+#define IDM_INSCHAR_REGISTERED 40323
+#define IDM_INSCHAR_TRADEMARK 40324
+#define IDM_INSCHAR_SECTION 40325
+#define IDM_INSCHAR_DEGREE 40326
+#define IDM_INSCHAR_BULLET 40327
+#define IDM_INSCHAR_MIDDLEDOT 40328
+#define IDM_INSCHAR_LAST 40328
 
 // Synthetic IDs for the top-level menu bar popups (Plik / Edycja / ...)
 // when they're converted to MFT_OWNERDRAW for dark-mode painting.

@@ -43,6 +43,15 @@ static const IID kIID_ITextDocument =
 // changes — only an actual edit / caret move scrolls. -1 = nothing pinned.
 static int g_pinnedFirstLine = -1;
 
+// True only while the user is drag-selecting text *inside* the editor
+// (set on WM_LBUTTONDOWN, cleared on WM_LBUTTONUP). The highlight overlay
+// must be skipped mid-drag-select (its GDI on the shared DC makes RichEdit
+// release the selection), but the earlier GetKeyState(VK_LBUTTON) test also
+// fired while the left button was held to drag the *window border* during a
+// resize — which wrongly suppressed the current-line highlight and left it
+// blank after enlarging the window. This flag is true for text drags only.
+static bool g_editorDragSelecting = false;
+
 // Posted to the editor from WM_SETFOCUS as an early (often zero-flicker)
 // restore attempt. RichEdit's scroll-caret pass may be synchronous, queued
 // as a message, or deferred to a later paint/timer — we can't know which,
@@ -811,17 +820,310 @@ static void DrawSpellErrors(HWND hwnd)
     ReleaseDC(hwnd, hdc);
 }
 
+// Shared with the highlight overlays below. Samples the rendered line
+// height from two adjacent visible lines (EM_POSFROMCHAR is only reliable
+// for laid-out — i.e. visible — char positions), falling back to the font
+// metrics. Same technique DrawSpellErrors uses inline.
+static int EditorLineHeight(HWND hwnd)
+{
+    int totalLines = static_cast<int>(SendMessageW(hwnd, EM_GETLINECOUNT, 0, 0));
+    int firstVisLine = static_cast<int>(SendMessageW(hwnd, EM_GETFIRSTVISIBLELINE, 0, 0));
+    int firstVisChar = static_cast<int>(SendMessageW(hwnd, EM_LINEINDEX, firstVisLine, 0));
+    if (firstVisChar < 0)
+        firstVisChar = 0;
+    int lineHeight = 0;
+    if (firstVisLine + 1 < totalLines)
+    {
+        POINTL p0{}, p1{};
+        int line1Char = static_cast<int>(SendMessageW(hwnd, EM_LINEINDEX, firstVisLine + 1, 0));
+        SendMessageW(hwnd, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&p0), firstVisChar);
+        SendMessageW(hwnd, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&p1), line1Char);
+        lineHeight = p1.y - p0.y;
+    }
+    if (lineHeight < 6 || lineHeight > 200)
+    {
+        // Fallback for a single-line document (no adjacent line to sample).
+        // Measure the editor's ACTUAL font via g_state.hFont, not WM_GETFONT:
+        // msftedit manages its font through CHARFORMAT and returns NULL for
+        // WM_GETFONT (verified), so the old path measured the DC's default
+        // stock font instead of Consolas and came out ~2px short of RichEdit's
+        // real line height — the current-line highlight then looked shorter
+        // than the text selection on a single-line file.
+        HDC dc = GetDC(hwnd);
+        HFONT f = g_state.hFont ? g_state.hFont
+                                : reinterpret_cast<HFONT>(SendMessageW(hwnd, WM_GETFONT, 0, 0));
+        HFONT of = f ? reinterpret_cast<HFONT>(SelectObject(dc, f)) : nullptr;
+        TEXTMETRICW tm{};
+        GetTextMetricsW(dc, &tm);
+        lineHeight = tm.tmHeight + tm.tmExternalLeading;
+        if (of)
+            SelectObject(dc, of);
+        ReleaseDC(hwnd, dc);
+        if (lineHeight < 6)
+            lineHeight = 16;
+    }
+    return lineHeight;
+}
+
+// Blend a solid colour over rc using a caller-prepared 1x1 32-bit DIB
+// (memDC has `bmp` selected; `bits` is its pixel). Reusing one DIB across
+// every fill in a paint — instead of creating/destroying a DC + DIB section
+// per match — is what keeps wheel-scrolling smooth when a common word has
+// many matches on screen. Safe against cumulative darkening because the
+// caller clips the destination DC to the WM_PAINT update region.
+static void FillRectAlpha(HDC dst, HDC memDC, void *bits, const RECT &rc, COLORREF color, BYTE alpha)
+{
+    int w = rc.right - rc.left, h = rc.bottom - rc.top;
+    if (w <= 0 || h <= 0 || !bits)
+        return;
+    BYTE *px = static_cast<BYTE *>(bits);
+    px[0] = GetBValue(color);
+    px[1] = GetGValue(color);
+    px[2] = GetRValue(color);
+    px[3] = 0; // no per-pixel alpha; SourceConstantAlpha does the blend
+    BLENDFUNCTION bf{AC_SRC_OVER, 0, alpha, 0};
+    AlphaBlend(dst, rc.left, rc.top, w, h, memDC, 0, 0, 1, 1, bf);
+}
+
+// Optional "highlight current line" overlay (Edit > Settings, off by
+// default). Fills the caret's line with a faint translucent wash. The
+// caller (WM_PAINT) passes a DC already clipped to the paint update region,
+// which is what makes the alpha fill safe from cumulative darkening.
+static void DrawCurrentLineHighlight(HWND hwnd, HDC hdc, HDC memDC, void *bits)
+{
+    RECT rcClient;
+    GetClientRect(hwnd, &rcClient);
+    DWORD a = 0, b = 0;
+    SendMessageW(hwnd, EM_GETSEL, reinterpret_cast<WPARAM>(&a), reinterpret_cast<LPARAM>(&b));
+    int caretLine = static_cast<int>(SendMessageW(hwnd, EM_EXLINEFROMCHAR, 0, static_cast<LPARAM>(a)));
+    int firstVisLine = static_cast<int>(SendMessageW(hwnd, EM_GETFIRSTVISIBLELINE, 0, 0));
+    if (caretLine < firstVisLine)
+        return;
+    int lineStart = static_cast<int>(SendMessageW(hwnd, EM_LINEINDEX, caretLine, 0));
+    if (lineStart < 0)
+        return;
+    POINTL pt{};
+    SendMessageW(hwnd, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&pt), lineStart);
+    int lh = EditorLineHeight(hwnd);
+    if (pt.y >= rcClient.bottom || pt.y + lh <= rcClient.top)
+        return;
+
+    COLORREF c = IsMatrixTheme() ? RGB(0, 255, 90)
+                 : IsDarkMode()  ? RGB(90, 150, 235)
+                                 : RGB(0, 120, 215);
+    BYTE alpha = IsMatrixTheme() ? 26 : IsDarkMode() ? 44 : 28;
+    RECT rc = {rcClient.left, pt.y, rcClient.right, pt.y + lh};
+    FillRectAlpha(hdc, memDC, bits, rc, c, alpha);
+}
+
+// Optional "highlight matches" overlay (Edit > Settings, off by default).
+// Fills every visible occurrence of the current selection with a faint
+// translucent wash. DC is pre-clipped to the paint update region by the
+// caller, so the alpha fills don't accumulate across partial repaints.
+static void DrawOccurrenceHighlights(HWND hwnd, HDC hdc, HDC memDC, void *bits)
+{
+    DWORD selA = 0, selB = 0;
+    SendMessageW(hwnd, EM_GETSEL, reinterpret_cast<WPARAM>(&selA), reinterpret_cast<LPARAM>(&selB));
+    int selLen = static_cast<int>(selB) - static_cast<int>(selA);
+    if (selLen <= 0 || selLen > 128)
+        return; // nothing selected, or selection too long to be a "word"
+
+    std::vector<wchar_t> buf(static_cast<size_t>(selLen) + 1, 0);
+    TEXTRANGEW tr;
+    tr.chrg.cpMin = static_cast<LONG>(selA);
+    tr.chrg.cpMax = static_cast<LONG>(selB);
+    tr.lpstrText = buf.data();
+    SendMessageW(hwnd, EM_GETTEXTRANGE, 0, reinterpret_cast<LPARAM>(&tr));
+    std::wstring needle(buf.data());
+    if (needle.empty())
+        return;
+    for (wchar_t ch : needle)
+        if (ch == L'\r' || ch == L'\n' || ch == L'\t')
+            return; // only highlight single-line, tab-free selections
+
+    RECT rcClient;
+    GetClientRect(hwnd, &rcClient);
+    int lh = EditorLineHeight(hwnd);
+    int firstVisLine = static_cast<int>(SendMessageW(hwnd, EM_GETFIRSTVISIBLELINE, 0, 0));
+    int firstVisChar = static_cast<int>(SendMessageW(hwnd, EM_LINEINDEX, firstVisLine, 0));
+    if (firstVisChar < 0)
+        firstVisChar = 0;
+
+    COLORREF c = IsMatrixTheme() ? RGB(0, 255, 90)
+                 : IsDarkMode()  ? RGB(60, 200, 60)
+                                 : RGB(0, 190, 0);
+    BYTE alpha = IsMatrixTheme() ? 40 : IsDarkMode() ? 60 : 52;
+
+    // Bound the search to the visible char range. Searching to the end of
+    // the document (cpMax = -1) meant that whenever no further match existed
+    // below the fold, EM_FINDTEXTEXW scanned the entire rest of the file —
+    // on every WM_PAINT, three times per wheel notch. That was the sluggish
+    // scrolling + busy-cursor flash. EM_CHARFROMPOS at the bottom-right
+    // gives the last visible character; a small margin catches a match
+    // straddling the fold.
+    int totalChars = static_cast<int>(SendMessageW(hwnd, WM_GETTEXTLENGTH, 0, 0));
+    POINT ptBottom = {rcClient.right, rcClient.bottom};
+    int lastVisChar = static_cast<int>(SendMessageW(hwnd, EM_CHARFROMPOS, 0, reinterpret_cast<LPARAM>(&ptBottom)));
+    if (lastVisChar < firstVisChar || lastVisChar > totalChars)
+        lastVisChar = totalChars;
+
+    FINDTEXTEXW ft{};
+    ft.lpstrText = needle.c_str();
+    ft.chrg.cpMin = firstVisChar;
+    ft.chrg.cpMax = lastVisChar + selLen + 1;
+    int guard = 0;
+    while (guard++ < 2000)
+    {
+        LONG found = static_cast<LONG>(SendMessageW(hwnd, EM_FINDTEXTEXW, FR_DOWN, reinterpret_cast<LPARAM>(&ft)));
+        if (found < 0)
+            break;
+        int mStart = ft.chrgText.cpMin;
+        int mEnd = ft.chrgText.cpMax;
+        if (mEnd <= mStart)
+            break;
+        ft.chrg.cpMin = mEnd; // continue past this match next iteration
+
+        // Skip the active selection itself — RichEdit already paints it
+        // with the selection colour.
+        if (!(mStart == static_cast<int>(selA) && mEnd == static_cast<int>(selB)))
+        {
+            POINTL p0{}, p1{};
+            SendMessageW(hwnd, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&p0), mStart);
+            if (p0.y > rcClient.bottom)
+                break; // matches come in order — nothing more is visible
+            SendMessageW(hwnd, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&p1), mEnd);
+            if (p1.y == p0.y && p1.x > p0.x && p0.y + lh > rcClient.top)
+            {
+                RECT rc = {p0.x, p0.y, p1.x, p0.y + lh};
+                FillRectAlpha(hdc, memDC, bits, rc, c, alpha);
+            }
+        }
+    }
+}
+
+// Called from the main window's EN_SELCHANGE. Repaints only what the
+// highlight overlays need: a selection change relevant to "highlight
+// matches" forces a full repaint (matches can be anywhere); otherwise just
+// the old and new caret-line bands are invalidated so "highlight current
+// line" moves without repainting the whole editor on every arrow key.
+void OnEditorSelChangeHighlights()
+{
+    if (!g_state.highlightCurrentLine && !g_state.highlightOccurrences)
+        return;
+    HWND hwnd = g_hwndEditor;
+    if (!hwnd)
+        return;
+    static int s_lastLine = -1, s_lastSelStart = -1, s_lastSelLen = -1;
+    DWORD a = 0, b = 0;
+    SendMessageW(hwnd, EM_GETSEL, reinterpret_cast<WPARAM>(&a), reinterpret_cast<LPARAM>(&b));
+    int line = static_cast<int>(SendMessageW(hwnd, EM_EXLINEFROMCHAR, 0, static_cast<LPARAM>(a)));
+    int selLen = static_cast<int>(b) - static_cast<int>(a);
+
+    bool occChanged = g_state.highlightOccurrences &&
+                      (static_cast<int>(a) != s_lastSelStart || selLen != s_lastSelLen) &&
+                      (selLen > 0 || s_lastSelLen > 0);
+
+    if (occChanged)
+    {
+        InvalidateRect(hwnd, nullptr, TRUE); // matches may be anywhere on screen
+    }
+    else if (g_state.highlightCurrentLine && line != s_lastLine)
+    {
+        int lh = EditorLineHeight(hwnd);
+        RECT rc;
+        GetClientRect(hwnd, &rc);
+        auto invalLine = [&](int ln) {
+            if (ln < 0)
+                return;
+            int ls = static_cast<int>(SendMessageW(hwnd, EM_LINEINDEX, ln, 0));
+            if (ls < 0)
+                return;
+            POINTL pt{};
+            SendMessageW(hwnd, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&pt), ls);
+            if (pt.y > rc.bottom || pt.y + lh < 0)
+                return;
+            RECT band = {rc.left, pt.y - 1, rc.right, pt.y + lh + 1};
+            InvalidateRect(hwnd, &band, TRUE);
+        };
+        invalLine(s_lastLine);
+        invalLine(line);
+    }
+
+    s_lastLine = line;
+    s_lastSelStart = static_cast<int>(a);
+    s_lastSelLen = selLen;
+}
+
 LRESULT CALLBACK EditorSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     switch (msg)
     {
     case WM_PAINT:
     {
+        // Capture the update region BEFORE RichEdit validates it, so the
+        // alpha-fill highlights can be clipped to only the freshly-painted
+        // pixels (otherwise the blend would stack on un-erased ones and
+        // darken on every partial repaint / scroll).
+        bool wantFill = g_state.highlightCurrentLine || g_state.highlightOccurrences;
+        HRGN updRgn = nullptr;
+        if (wantFill)
+        {
+            updRgn = CreateRectRgn(0, 0, 0, 0);
+            if (GetUpdateRgn(hwnd, updRgn, FALSE) == ERROR)
+            {
+                DeleteObject(updRgn);
+                updRgn = nullptr;
+            }
+        }
         LRESULT result = CallWindowProcW(g_origEditorProc, hwnd, msg, wParam, lParam);
         // Skip overlay drawing while user is drag-selecting — extra GDI
         // operations on the same DC interfere with RichEdit's selection
-        // tracking and cause the selection to release mid-drag.
-        bool dragging = (GetKeyState(VK_LBUTTON) & 0x8000) != 0;
+        // tracking and cause the selection to release mid-drag. (A finished
+        // click/drag re-shows the fills via the WM_LBUTTONUP invalidate.)
+        bool dragging = g_editorDragSelecting;
+        if (wantFill && !dragging)
+        {
+            HDC hdc = GetDC(hwnd);
+            if (hdc)
+            {
+                RECT rcClient;
+                GetClientRect(hwnd, &rcClient);
+                IntersectClipRect(hdc, rcClient.left, rcClient.top, rcClient.right, rcClient.bottom);
+                if (updRgn)
+                    ExtSelectClipRgn(hdc, updRgn, RGN_AND);
+                // One reusable 1x1 blend bitmap for every fill this paint.
+                HDC memDC = CreateCompatibleDC(hdc);
+                void *bits = nullptr;
+                HBITMAP bmp = nullptr;
+                if (memDC)
+                {
+                    BITMAPINFO bi{};
+                    bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+                    bi.bmiHeader.biWidth = 1;
+                    bi.bmiHeader.biHeight = 1;
+                    bi.bmiHeader.biPlanes = 1;
+                    bi.bmiHeader.biBitCount = 32;
+                    bi.bmiHeader.biCompression = BI_RGB;
+                    bmp = CreateDIBSection(memDC, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+                    if (bmp)
+                        SelectObject(memDC, bmp);
+                }
+                if (memDC && bmp && bits)
+                {
+                    if (g_state.highlightCurrentLine)
+                        DrawCurrentLineHighlight(hwnd, hdc, memDC, bits);
+                    if (g_state.highlightOccurrences)
+                        DrawOccurrenceHighlights(hwnd, hdc, memDC, bits);
+                }
+                if (bmp)
+                    DeleteObject(bmp);
+                if (memDC)
+                    DeleteDC(memDC);
+                ReleaseDC(hwnd, hdc);
+            }
+        }
+        if (updRgn)
+            DeleteObject(updRgn);
         if (g_state.showSpecialChars && !dragging)
             DrawSpecialCharMarkers(hwnd);
         if (g_state.spellCheckEnabled && !dragging)
@@ -837,6 +1139,7 @@ LRESULT CALLBACK EditorSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         // Line-based (EM_GETFIRSTVISIBLELINE) survives RichEdit's layout
         // passes; a pixel-based EM_GETSCROLLPOS snapshot does not.
         g_pinnedFirstLine = static_cast<int>(SendMessageW(hwnd, EM_GETFIRSTVISIBLELINE, 0, 0));
+        g_editorDragSelecting = false; // a drag can't be in progress without focus
         break; // let the default handler run too
     }
     case WM_SETFOCUS:
@@ -868,15 +1171,50 @@ LRESULT CALLBACK EditorSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             return 0;
         }
         break;
+    case WM_LBUTTONDOWN:
+        // Mark the start of an in-editor text drag-select so the overlay
+        // guard suppresses fills only for real selections (not window resize).
+        g_editorDragSelecting = true;
+        break; // let RichEdit run its normal selection handling
+    case WM_SIZE:
+    {
+        LRESULT result = CallWindowProcW(g_origEditorProc, hwnd, msg, wParam, lParam);
+        // RichEdit relays out and repaints on resize, but nothing guarantees
+        // the caret-line / match fills are redrawn (and the old surgical
+        // invalidation only runs on selection change). Force a clean repaint
+        // so the current-line highlight survives enlarging / maximizing the
+        // window instead of vanishing until the next caret move.
+        if (g_state.highlightCurrentLine || g_state.highlightOccurrences)
+            InvalidateRect(hwnd, nullptr, FALSE);
+        return result;
+    }
     case WM_LBUTTONUP:
     {
+        g_editorDragSelecting = false;
         LRESULT result = CallWindowProcW(g_origEditorProc, hwnd, msg, wParam, lParam);
         if (g_state.showSpecialChars)
             InvalidateRect(hwnd, nullptr, FALSE);
+        // The highlight fills are skipped mid-gesture (the WM_PAINT dragging
+        // guard). Now the click / drag / double-click is finished, repaint so
+        // they appear for the new caret line and selection — this is what
+        // makes mouse selection and double-click-to-highlight work.
+        if (g_state.highlightCurrentLine || g_state.highlightOccurrences)
+            InvalidateRect(hwnd, nullptr, TRUE);
         return result;
     }
     case WM_LBUTTONDBLCLK:
     {
+        // On an empty document there is no word to select — RichEdit's
+        // word-select instead grabs the mandatory trailing paragraph mark and
+        // draws a stray selection sliver (EM_GETSEL still reports 0,0, so the
+        // collapse below never catches it). Skip RichEdit's double-click
+        // handling entirely and just keep the caret at the start, matching the
+        // classic EDIT control which selects nothing on empty.
+        if (SendMessageW(hwnd, WM_GETTEXTLENGTH, 0, 0) == 0)
+        {
+            SendMessageW(hwnd, EM_SETSEL, 0, 0);
+            return 0;
+        }
         LRESULT result = CallWindowProcW(g_origEditorProc, hwnd, msg, wParam, lParam);
         // RichEdit's word-select, when the double-click lands past the end
         // of a line, grabs the invisible paragraph mark (a lone \r) — a
@@ -1004,6 +1342,21 @@ LRESULT CALLBACK EditorSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         // so the first click both activates the window and reaches the
         // editor as a normal mouse-down — matching classic Notepad.
         return MA_ACTIVATE;
+    case WM_VSCROLL:
+    case WM_HSCROLL:
+    {
+        // RichEdit scrolls by blitting and repainting only the newly
+        // exposed strip. The translucent highlight fills can't survive that
+        // (the overlay is clipped to the paint update region, so the blitted
+        // fills in the middle aren't re-laid), so force a clean full repaint
+        // when a highlight is on. The visible-range-bounded match search
+        // above keeps that cheap. Wheel sends several of these per notch but
+        // the InvalidateRect calls coalesce into a single WM_PAINT.
+        LRESULT result = CallWindowProcW(g_origEditorProc, hwnd, msg, wParam, lParam);
+        if (g_state.highlightCurrentLine || g_state.highlightOccurrences)
+            InvalidateRect(hwnd, nullptr, FALSE);
+        return result;
+    }
     case WM_MOUSEWHEEL:
     {
         int delta = GET_WHEEL_DELTA_WPARAM(wParam);
@@ -1034,8 +1387,32 @@ LRESULT CALLBACK EditorSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         }
         else
         {
-            for (UINT i = 0; i < scrollLines; ++i)
-                SendMessageW(hwnd, WM_VSCROLL, (delta > 0) ? SB_LINEUP : SB_LINEDOWN, 0);
+            // One EM_LINESCROLL instead of N separate WM_VSCROLL line steps.
+            // Each WM_VSCROLL makes RichEdit blit + repaint (and run the
+            // overlay), so N per notch meant N paints — the wheel felt much
+            // heavier than dragging the scrollbar, which is a single repaint.
+            // Positive lParam scrolls down. Then one invalidate so the
+            // translucent highlights re-lay cleanly (see WM_VSCROLL handler).
+            int lines = static_cast<int>(scrollLines);
+            SendMessageW(hwnd, EM_LINESCROLL, 0, (delta > 0) ? -lines : lines);
+            // EM_LINESCROLL lets msftedit overshoot the true bottom by up to
+            // ~1 line, exposing the trailing phantom line as a blank gap below
+            // the last text — the scrollbar thumb clamps exactly, the wheel
+            // didn't (measured: nPos 10408 vs the bottom's 10407). When
+            // scrolling down, snap to the exact bottom if we overshot. The
+            // vertical scrollbar is in pixels; the last valid position is
+            // nMax - nPage (verified against WM_VSCROLL SB_BOTTOM).
+            if (delta < 0)
+            {
+                SCROLLINFO si{};
+                si.cbSize = sizeof(si);
+                si.fMask = SIF_RANGE | SIF_PAGE | SIF_POS;
+                if (GetScrollInfo(hwnd, SB_VERT, &si) &&
+                    si.nPos > si.nMax - static_cast<int>(si.nPage))
+                    SendMessageW(hwnd, WM_VSCROLL, SB_BOTTOM, 0);
+            }
+            if (g_state.highlightCurrentLine || g_state.highlightOccurrences)
+                InvalidateRect(hwnd, nullptr, FALSE);
         }
         return 0;
     }

@@ -143,6 +143,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             CheckMenuItem(hMenu, IDM_VIEW_LINENUMBERS, g_state.showLineNumbers ? MF_CHECKED : MF_UNCHECKED);
             CheckMenuItem(hMenu, IDM_EDIT_SETTINGS_TOOLS, g_state.toolsEnabled ? MF_CHECKED : MF_UNCHECKED);
             CheckMenuItem(hMenu, IDM_EDIT_SETTINGS_QUICKICONS, g_state.quickAccessIcons ? MF_CHECKED : MF_UNCHECKED);
+            CheckMenuItem(hMenu, IDM_EDIT_SETTINGS_HIGHLIGHTLINE, g_state.highlightCurrentLine ? MF_CHECKED : MF_UNCHECKED);
+            CheckMenuItem(hMenu, IDM_EDIT_SETTINGS_HIGHLIGHTWORD, g_state.highlightOccurrences ? MF_CHECKED : MF_UNCHECKED);
         }
         SetFocus(g_hwndEditor);
         return 0;
@@ -312,6 +314,38 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_FRAME);
         break;
     }
+    case WM_INITMENUPOPUP:
+    {
+        // Refresh the dynamic state of menu items right as a popup opens:
+        // File > Open Folder / Copy Path need a saved path; Format's Line
+        // Endings / Encoding submenus show the document's current values as
+        // radio ticks.
+        HMENU hMenu = GetMenu(g_hwndMain);
+        if (hMenu)
+        {
+            UINT flag = g_state.filePath.empty() ? (MF_BYCOMMAND | MF_GRAYED)
+                                                 : (MF_BYCOMMAND | MF_ENABLED);
+            EnableMenuItem(hMenu, IDM_FILE_OPENFOLDER, flag);
+            EnableMenuItem(hMenu, IDM_FILE_COPYPATH, flag);
+
+            UINT leId = (g_state.lineEnding == LineEnding::CRLF) ? IDM_FORMAT_LE_CRLF
+                      : (g_state.lineEnding == LineEnding::LF)   ? IDM_FORMAT_LE_LF
+                                                                 : IDM_FORMAT_LE_CR;
+            CheckMenuRadioItem(hMenu, IDM_FORMAT_LE_CRLF, IDM_FORMAT_LE_CR, leId, MF_BYCOMMAND);
+
+            UINT encId;
+            switch (g_state.encoding)
+            {
+            case Encoding::UTF8:    encId = IDM_FORMAT_ENC_UTF8; break;
+            case Encoding::UTF8BOM: encId = IDM_FORMAT_ENC_UTF8BOM; break;
+            case Encoding::UTF16LE: encId = IDM_FORMAT_ENC_UTF16LE; break;
+            case Encoding::UTF16BE: encId = IDM_FORMAT_ENC_UTF16BE; break;
+            default:                encId = IDM_FORMAT_ENC_ANSI; break;
+            }
+            CheckMenuRadioItem(hMenu, IDM_FORMAT_ENC_UTF8, IDM_FORMAT_ENC_ANSI, encId, MF_BYCOMMAND);
+        }
+        break;
+    }
     case WM_NCMOUSEMOVE:
     {
         // Subscribe to WM_NCMOUSELEAVE so we can clear stale menu-bar
@@ -328,11 +362,18 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             TrackMouseEvent(&tme);
             g_ncMouseTracking = true;
         }
+        // lParam carries the cursor position in screen coordinates for NC
+        // mouse messages — hand it to the quick-icon tooltip driver.
+        {
+            POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+            ShowQuickIconTooltip(pt);
+        }
         break;
     }
     case WM_NCMOUSELEAVE:
     {
         g_ncMouseTracking = false;
+        HideQuickIconTooltip();
         DrawMenuBar(hwnd);
         return 0;
     }
@@ -627,11 +668,93 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             UpdateMenuStrings();
             SaveSettings();
             break;
+        case IDM_EDIT_SETTINGS_HIGHLIGHTLINE:
+            g_state.highlightCurrentLine = !g_state.highlightCurrentLine;
+            CheckMenuItem(GetMenu(g_hwndMain), IDM_EDIT_SETTINGS_HIGHLIGHTLINE,
+                          g_state.highlightCurrentLine ? MF_CHECKED : MF_UNCHECKED);
+            InvalidateRect(g_hwndEditor, nullptr, TRUE);
+            SaveSettings();
+            break;
+        case IDM_EDIT_SETTINGS_HIGHLIGHTWORD:
+            g_state.highlightOccurrences = !g_state.highlightOccurrences;
+            CheckMenuItem(GetMenu(g_hwndMain), IDM_EDIT_SETTINGS_HIGHLIGHTWORD,
+                          g_state.highlightOccurrences ? MF_CHECKED : MF_UNCHECKED);
+            InvalidateRect(g_hwndEditor, nullptr, TRUE);
+            SaveSettings();
+            break;
+        case IDM_FORMAT_LE_CRLF:
+        case IDM_FORMAT_LE_LF:
+        case IDM_FORMAT_LE_CR:
+        {
+            LineEnding le = (cmd == IDM_FORMAT_LE_CRLF) ? LineEnding::CRLF
+                          : (cmd == IDM_FORMAT_LE_LF)   ? LineEnding::LF
+                                                        : LineEnding::CR;
+            if (g_state.lineEnding != le)
+            {
+                g_state.lineEnding = le;
+                g_state.modified = true; // affects what Save writes
+                UpdateTitle();
+                UpdateStatus();
+            }
+            break;
+        }
+        case IDM_FORMAT_ENC_UTF8:
+        case IDM_FORMAT_ENC_UTF8BOM:
+        case IDM_FORMAT_ENC_UTF16LE:
+        case IDM_FORMAT_ENC_UTF16BE:
+        case IDM_FORMAT_ENC_ANSI:
+        {
+            Encoding enc = (cmd == IDM_FORMAT_ENC_UTF8)    ? Encoding::UTF8
+                         : (cmd == IDM_FORMAT_ENC_UTF8BOM) ? Encoding::UTF8BOM
+                         : (cmd == IDM_FORMAT_ENC_UTF16LE) ? Encoding::UTF16LE
+                         : (cmd == IDM_FORMAT_ENC_UTF16BE) ? Encoding::UTF16BE
+                                                           : Encoding::ANSI;
+            if (g_state.encoding != enc)
+            {
+                g_state.encoding = enc;
+                g_state.modified = true;
+                UpdateTitle();
+                UpdateStatus();
+            }
+            break;
+        }
+        case IDM_FILE_OPENFOLDER:
+            if (!g_state.filePath.empty())
+            {
+                // Open Explorer with the file selected.
+                std::wstring args = L"/select,\"" + g_state.filePath + L"\"";
+                ShellExecuteW(g_hwndMain, nullptr, L"explorer.exe", args.c_str(), nullptr, SW_SHOWNORMAL);
+            }
+            break;
+        case IDM_FILE_COPYPATH:
+            if (!g_state.filePath.empty() && OpenClipboard(g_hwndMain))
+            {
+                EmptyClipboard();
+                size_t bytes = (g_state.filePath.size() + 1) * sizeof(wchar_t);
+                HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, bytes);
+                if (hMem)
+                {
+                    void *p = GlobalLock(hMem);
+                    if (p)
+                    {
+                        CopyMemory(p, g_state.filePath.c_str(), bytes);
+                        GlobalUnlock(hMem);
+                        SetClipboardData(CF_UNICODETEXT, hMem);
+                    }
+                }
+                CloseClipboard();
+            }
+            break;
         case IDM_QUICK_SPELLCHECK:
         case IDM_QUICK_ONTOP:
         case IDM_QUICK_DARKMODE:
             HandleQuickIconClick(cmd);
             SaveSettings();
+            break;
+        case IDM_QUICK_INSERTCHAR:
+            // Opens its own popup and inserts the chosen glyph; no toggle
+            // state to persist, so no SaveSettings.
+            HandleQuickIconClick(cmd);
             break;
         case IDM_TOOLS_NORMALIZE:
             ToolsNormalizeText();
@@ -737,6 +860,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         if (pnmh->hwndFrom == g_hwndEditor && pnmh->code == EN_SELCHANGE)
         {
             UpdateStatus();
+            OnEditorSelChangeHighlights();
         }
         return 0;
     }

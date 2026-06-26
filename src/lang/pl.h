@@ -124,4 +124,26 @@ inline LangStrings g_langPL = {
 
     L"Windows (CRLF)",
     L"Unix (LF)",
-    L"Macintosh (CR)"};
+    L"Macintosh (CR)",
+
+    L"Sprawdzanie pisowni",
+    L"Zawsze na wierzchu",
+    L"Motyw jasny / ciemny",
+
+    L"Wstaw znak specjalny",
+    L"Euro",
+    L"Funt",
+    L"Copyright",
+    L"Zastrzeżony",
+    L"Znak towarowy",
+    L"Paragraf",
+    L"Stopień",
+    L"Punktor",
+    L"Kropka środkowa",
+
+    L"Podświetl bieżącą &linię",
+    L"Podświetl &wszystkie wystąpienia",
+    L"&Końce linii",
+    L"&Kodowanie",
+    L"Otwórz &folder pliku",
+    L"&Kopiuj ścieżkę pliku"};

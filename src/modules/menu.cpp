@@ -196,6 +196,8 @@ void UpdateMenuStrings()
         SetItemText(hFileMenu, IDM_FILE_SAVEAS, FALSE, lang.menuSaveAs.c_str());
         SetItemText(hFileMenu, IDM_FILE_PRINT, FALSE, lang.menuPrint.c_str());
         SetItemText(hFileMenu, IDM_FILE_PAGESETUP, FALSE, lang.menuPageSetup.c_str());
+        SetItemText(hFileMenu, IDM_FILE_OPENFOLDER, FALSE, lang.menuFileOpenFolder.c_str());
+        SetItemText(hFileMenu, IDM_FILE_COPYPATH, FALSE, lang.menuFileCopyPath.c_str());
         SetItemText(hFileMenu, IDM_FILE_EXIT, FALSE, lang.menuExit.c_str());
     }
 
@@ -224,6 +226,8 @@ void UpdateMenuStrings()
             SetItemText(hSettingsMenu, 0, TRUE, lang.menuSettingsDateFormat.c_str());
             SetItemText(hSettingsMenu, 1, TRUE, lang.menuSettingsTools.c_str());
             SetItemText(hSettingsMenu, 2, TRUE, lang.menuSettingsQuickIcons.c_str());
+            SetItemText(hSettingsMenu, 3, TRUE, lang.menuSettingsHighlightLine.c_str());
+            SetItemText(hSettingsMenu, 4, TRUE, lang.menuSettingsHighlightWord.c_str());
         }
     }
 
@@ -232,6 +236,25 @@ void UpdateMenuStrings()
     {
         SetItemText(hFormatMenu, 0, TRUE, lang.menuWordWrap.c_str());
         SetItemText(hFormatMenu, 1, TRUE, lang.menuFont.c_str());
+        // Position 2 is a separator; 3 = Line Endings popup, 4 = Encoding popup.
+        SetItemText(hFormatMenu, 3, TRUE, lang.menuFormatLineEndings.c_str());
+        SetItemText(hFormatMenu, 4, TRUE, lang.menuFormatEncoding.c_str());
+        HMENU hLE = GetSubMenu(hFormatMenu, 3);
+        if (hLE)
+        {
+            SetItemText(hLE, IDM_FORMAT_LE_CRLF, FALSE, lang.lineEndingCRLF.c_str());
+            SetItemText(hLE, IDM_FORMAT_LE_LF, FALSE, lang.lineEndingLF.c_str());
+            SetItemText(hLE, IDM_FORMAT_LE_CR, FALSE, lang.lineEndingCR.c_str());
+        }
+        HMENU hEnc = GetSubMenu(hFormatMenu, 4);
+        if (hEnc)
+        {
+            SetItemText(hEnc, IDM_FORMAT_ENC_UTF8, FALSE, lang.encodingUTF8.c_str());
+            SetItemText(hEnc, IDM_FORMAT_ENC_UTF8BOM, FALSE, lang.encodingUTF8BOM.c_str());
+            SetItemText(hEnc, IDM_FORMAT_ENC_UTF16LE, FALSE, lang.encodingUTF16LE.c_str());
+            SetItemText(hEnc, IDM_FORMAT_ENC_UTF16BE, FALSE, lang.encodingUTF16BE.c_str());
+            SetItemText(hEnc, IDM_FORMAT_ENC_ANSI, FALSE, lang.encodingANSI.c_str());
+        }
     }
 
     HMENU hViewMenu = GetSubMenu(hMenu, 3);

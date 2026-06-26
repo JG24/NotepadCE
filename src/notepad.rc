@@ -20,6 +20,9 @@ BEGIN
         MENUITEM "&Print...\tCtrl+P", IDM_FILE_PRINT
         MENUITEM "Page Set&up...", IDM_FILE_PAGESETUP
         MENUITEM SEPARATOR
+        MENUITEM "Open Containing &Folder", IDM_FILE_OPENFOLDER
+        MENUITEM "&Copy File Path", IDM_FILE_COPYPATH
+        MENUITEM SEPARATOR
         MENUITEM "E&xit", IDM_FILE_EXIT
     END
     POPUP "&Edit"
@@ -47,12 +50,29 @@ BEGIN
             MENUITEM "&Date and Time Format...", IDM_EDIT_SETTINGS_DATEFORMAT
             MENUITEM "&Enable Tools", IDM_EDIT_SETTINGS_TOOLS
             MENUITEM "&Quick Access Icons", IDM_EDIT_SETTINGS_QUICKICONS
+            MENUITEM "Highlight Current &Line", IDM_EDIT_SETTINGS_HIGHLIGHTLINE
+            MENUITEM "Highlight &Matches", IDM_EDIT_SETTINGS_HIGHLIGHTWORD
         END
     END
     POPUP "F&ormat"
     BEGIN
         MENUITEM "&Word Wrap", IDM_FORMAT_WORDWRAP
         MENUITEM "&Font...", IDM_FORMAT_FONT
+        MENUITEM SEPARATOR
+        POPUP "&Line Endings"
+        BEGIN
+            MENUITEM "Windows (CRLF)", IDM_FORMAT_LE_CRLF
+            MENUITEM "Unix (LF)", IDM_FORMAT_LE_LF
+            MENUITEM "Macintosh (CR)", IDM_FORMAT_LE_CR
+        END
+        POPUP "&Encoding"
+        BEGIN
+            MENUITEM "UTF-8", IDM_FORMAT_ENC_UTF8
+            MENUITEM "UTF-8 with BOM", IDM_FORMAT_ENC_UTF8BOM
+            MENUITEM "UTF-16 LE", IDM_FORMAT_ENC_UTF16LE
+            MENUITEM "UTF-16 BE", IDM_FORMAT_ENC_UTF16BE
+            MENUITEM "ANSI", IDM_FORMAT_ENC_ANSI
+        END
     END
     POPUP "&View"
     BEGIN
