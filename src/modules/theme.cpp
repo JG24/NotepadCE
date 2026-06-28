@@ -22,6 +22,7 @@
 #include "resource.h"
 #include "settings.h"
 #include "menu.h"
+#include "editor.h"
 
 bool SetTitleBarDark(HWND hwnd, BOOL dark)
 {
@@ -224,8 +225,10 @@ void ApplyTheme()
     // toggling dark/light marks an unmodified file as modified and the
     // app prompts to save on exit.
     LRESULT oldMask = SendMessageW(g_hwndEditor, EM_SETEVENTMASK, 0, 0);
+    SetEditorUndoSuspended(true);
     SendMessageW(g_hwndEditor, EM_SETCHARFORMAT, SCF_ALL, reinterpret_cast<LPARAM>(&cf));
     SendMessageW(g_hwndEditor, EM_SETCHARFORMAT, SCF_DEFAULT, reinterpret_cast<LPARAM>(&cf));
+    SetEditorUndoSuspended(false);
     SendMessageW(g_hwndEditor, EM_SETEVENTMASK, 0, oldMask);
     SendMessageW(g_hwndStatus, SB_SETBKCOLOR, 0, dark ? RGB(45, 45, 45) : CLR_DEFAULT);
     // Tick the active theme in the View menu's Light/Dark/Matrix radio

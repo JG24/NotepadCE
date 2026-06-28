@@ -56,7 +56,7 @@ inline LangStrings g_langDE = {
 
     L"&Werkzeuge",
     L"Text &normalisieren",
-    L"&Base64",
+    L"Text zu &Base64",
     L"&SHA1",
     L"&MD5",
     L"&GROSSBUCHSTABEN",
@@ -146,4 +146,5 @@ inline LangStrings g_langDE = {
     L"Zeilen&umbrüche",
     L"&Kodierung",
     L"Enthaltenden &Ordner öffnen",
-    L"Datei&pfad kopieren"};
+    L"Datei&pfad kopieren",
+    L"Base64 zu &Text"};

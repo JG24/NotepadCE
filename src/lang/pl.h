@@ -56,7 +56,7 @@ inline LangStrings g_langPL = {
 
     L"&Narzędzia",
     L"&Normalizacja tekstu",
-    L"&Base64",
+    L"Tekst do &Base64",
     L"&SHA1",
     L"&MD5",
     L"&WIELKIE LITERY",
@@ -146,4 +146,5 @@ inline LangStrings g_langPL = {
     L"&Końce linii",
     L"&Kodowanie",
     L"Otwórz &folder pliku",
-    L"&Kopiuj ścieżkę pliku"};
+    L"&Kopiuj ścieżkę pliku",
+    L"Base64 do &tekstu"};

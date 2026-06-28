@@ -249,6 +249,39 @@ void ToolsBase64()
     ReplaceTargetText(out, wasSelection);
 }
 
+void ToolsBase64Decode()
+{
+    bool wasSelection = false;
+    std::wstring text = GetTargetText(&wasSelection);
+    if (text.empty())
+        return;
+
+    // Base64 text -> raw bytes. CRYPT_STRING_BASE64 tolerates embedded
+    // whitespace / line breaks. Invalid Base64 -> leave the text untouched.
+    DWORD byteLen = 0;
+    if (!CryptStringToBinaryW(text.c_str(), static_cast<DWORD>(text.size()),
+                              CRYPT_STRING_BASE64, nullptr, &byteLen, nullptr, nullptr) ||
+        byteLen == 0)
+        return;
+
+    std::vector<BYTE> bytes(byteLen);
+    if (!CryptStringToBinaryW(text.c_str(), static_cast<DWORD>(text.size()),
+                              CRYPT_STRING_BASE64, bytes.data(), &byteLen, nullptr, nullptr))
+        return;
+
+    // Interpret the decoded bytes as UTF-8 — the mirror of ToolsBase64, which
+    // UTF-8-encodes the text before Base64. (Bytes that aren't valid UTF-8 are
+    // shown with the Unicode replacement character rather than failing.)
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, reinterpret_cast<const char *>(bytes.data()),
+                                   static_cast<int>(byteLen), nullptr, 0);
+    if (wlen <= 0)
+        return;
+    std::wstring out(static_cast<size_t>(wlen), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, reinterpret_cast<const char *>(bytes.data()),
+                        static_cast<int>(byteLen), out.data(), wlen);
+    ReplaceTargetText(out, wasSelection);
+}
+
 // ---------- Hashing via BCrypt --------------------------------------------
 
 static std::wstring HashHex(LPCWSTR algId, const std::vector<BYTE> &data)

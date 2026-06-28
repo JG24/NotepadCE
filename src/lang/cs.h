@@ -56,7 +56,7 @@ inline LangStrings g_langCS = {
 
     L"&Nástroje",
     L"&Normalizovat text",
-    L"&Base64",
+    L"Text na &Base64",
     L"&SHA1",
     L"&MD5",
     L"&VELKÁ PÍSMENA",
@@ -146,4 +146,5 @@ inline LangStrings g_langCS = {
     L"Konce řá&dků",
     L"Kó&dování",
     L"Otevřít &složku souboru",
-    L"&Kopírovat cestu k souboru"};
+    L"&Kopírovat cestu k souboru",
+    L"Base64 na &text"};

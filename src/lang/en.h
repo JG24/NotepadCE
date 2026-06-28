@@ -56,7 +56,7 @@ inline LangStrings g_langEN = {
 
     L"&Tools",
     L"&Normalize Text",
-    L"&Base64",
+    L"Text to &Base64",
     L"&SHA1",
     L"&MD5",
     L"&UPPERCASE",
@@ -146,4 +146,5 @@ inline LangStrings g_langEN = {
     L"&Line Endings",
     L"&Encoding",
     L"Open Containing &Folder",
-    L"&Copy File Path"};
+    L"&Copy File Path",
+    L"Base64 to &Text"};

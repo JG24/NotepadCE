@@ -2,6 +2,7 @@
 
 void ToolsNormalizeText();
 void ToolsBase64();
+void ToolsBase64Decode();
 void ToolsSha1();
 void ToolsMd5();
 

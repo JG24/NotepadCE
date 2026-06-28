@@ -22,6 +22,7 @@ std::wstring GetEditorText();
 void SetEditorText(const std::wstring &text);
 std::pair<int, int> GetCursorPos();
 void SetEditorPlainTextMode(HWND hwnd);
+void SetEditorUndoSuspended(bool suspend);
 void ApplyFont();
 void ApplyZoom();
 void ApplyWordWrap();

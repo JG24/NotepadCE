@@ -56,7 +56,7 @@ inline LangStrings g_langLT = {
 
     L"Į&rankiai",
     L"&Normalizuoti tekstą",
-    L"&Base64",
+    L"Tekstas į &Base64",
     L"&SHA1",
     L"&MD5",
     L"&DIDŽIOSIOS RAIDĖS",
@@ -146,4 +146,5 @@ inline LangStrings g_langLT = {
     L"Eilučių pa&baiga",
     L"Koduo&tė",
     L"Atverti &aplanką su failu",
-    L"&Kopijuoti failo kelią"};
+    L"&Kopijuoti failo kelią",
+    L"Base64 į &tekstą"};

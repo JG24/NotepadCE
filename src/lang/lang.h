@@ -199,6 +199,7 @@ struct LangStrings
     LStr menuFormatEncoding;
     LStr menuFileOpenFolder;
     LStr menuFileCopyPath;
+    LStr menuToolsBase64Decode;
 };
 
 void InitLanguage();

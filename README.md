@@ -90,7 +90,7 @@ NotepadCE is a fork of [Legacy Notepad](https://github.com/forloopcodes/legacy-n
   - Non-breaking space, soft hyphen, ZWJ/ZWNJ, BOM and 19 other invisible characters are stripped.
   - Repeated spaces are collapsed into a single one.
   - Stretches of blank lines are capped at a maximum of two.
-- **Base64** — encode and decode the current selection.
+- **Text to Base64** and **Base64 to Text** — two separate entries to encode the selection to Base64 (UTF-8) or decode it back.
 - **SHA-1** of the current selection (bcrypt API).
 - **MD5** of the current selection (bcrypt API).
 - **Change case** — UPPERCASE, lowercase, Title Case.

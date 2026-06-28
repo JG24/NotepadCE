@@ -762,6 +762,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         case IDM_TOOLS_BASE64:
             ToolsBase64();
             break;
+        case IDM_TOOLS_BASE64_DECODE:
+            ToolsBase64Decode();
+            break;
         case IDM_TOOLS_SHA1:
             ToolsSha1();
             break;

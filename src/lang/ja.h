@@ -56,7 +56,7 @@ inline LangStrings g_langJA = {
 
     L"ツール(&T)",
     L"テキスト正規化(&N)",
-    L"&Base64",
+    L"テキスト → Base64(&B)",
     L"&SHA1",
     L"&MD5",
     L"大文字に変換(&U)",
@@ -146,4 +146,5 @@ inline LangStrings g_langJA = {
     L"改行コード",
     L"エンコード",
     L"ファイルの場所を開く",
-    L"ファイルのパスをコピー"};
+    L"ファイルのパスをコピー",
+    L"Base64 → テキスト(&T)"};

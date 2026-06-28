@@ -43,6 +43,14 @@ static const IID kIID_ITextDocument =
 // changes — only an actual edit / caret move scrolls. -1 = nothing pinned.
 static int g_pinnedFirstLine = -1;
 
+// Caret position captured alongside g_pinnedFirstLine. If the caret has moved
+// by the time focus returns, something navigated the document while the editor
+// was unfocused (Find / Replace / Go To Line all EM_SETSEL on the unfocused
+// editor), so the pinned viewport is stale and must NOT be restored — doing so
+// snapped the view back to where it was before the search, undoing the jump to
+// the match. -1 = nothing pinned.
+static int g_pinnedCaret = -1;
+
 // True only while the user is drag-selecting text *inside* the editor
 // (set on WM_LBUTTONDOWN, cleared on WM_LBUTTONUP). The highlight overlay
 // must be skipped mid-drag-select (its GDI on the shared DC makes RichEdit
@@ -74,6 +82,17 @@ static void RestorePinnedScroll(HWND hwnd)
 {
     if (g_pinnedFirstLine < 0)
         return;
+    // If the caret moved while the editor was unfocused — e.g. Find or Go To
+    // Line scrolled to a match — the pinned viewport is stale. Honour the new
+    // caret position (RichEdit already scrolled it into view) and abandon the
+    // pin instead of yanking the view back to where the search started.
+    DWORD selStart = 0, selEnd = 0;
+    SendMessageW(hwnd, EM_GETSEL, reinterpret_cast<WPARAM>(&selStart), reinterpret_cast<LPARAM>(&selEnd));
+    if (static_cast<int>(selStart) != g_pinnedCaret)
+    {
+        g_pinnedFirstLine = -1;
+        return;
+    }
     int now = static_cast<int>(SendMessageW(hwnd, EM_GETFIRSTVISIBLELINE, 0, 0));
     if (now != g_pinnedFirstLine)
         SendMessageW(hwnd, EM_LINESCROLL, 0, g_pinnedFirstLine - now);
@@ -158,6 +177,31 @@ void SetEditorPlainTextMode(HWND hwnd)
     SendMessageW(hwnd, EM_SETLANGOPTIONS, 0, opts);
 }
 
+// Suspend / resume RichEdit's undo recording via TOM. Applying the theme or
+// font colour goes through EM_SETCHARFORMAT SCF_ALL, which RichEdit records as
+// an undoable edit — so Ctrl+Z would revert a colour change instead of a real
+// text edit (typed text flipping green->white->black under the Matrix theme,
+// and the startup theme passes piling several colour steps onto the stack).
+// Bracketing the format calls in suspend/resume keeps colour changes out of
+// the undo history entirely. Calls must be balanced.
+static const long kTomSuspend = -9999995;
+static const long kTomResume = -9999994;
+void SetEditorUndoSuspended(bool suspend)
+{
+    if (!g_hwndEditor)
+        return;
+    IRichEditOle *ole = nullptr;
+    if (!SendMessageW(g_hwndEditor, EM_GETOLEINTERFACE, 0, reinterpret_cast<LPARAM>(&ole)) || !ole)
+        return;
+    ITextDocument *doc = nullptr;
+    if (SUCCEEDED(ole->QueryInterface(kIID_ITextDocument, reinterpret_cast<void **>(&doc))) && doc)
+    {
+        doc->Undo(suspend ? kTomSuspend : kTomResume, nullptr);
+        doc->Release();
+    }
+    ole->Release();
+}
+
 void ApplyFont()
 {
     // Snapshot modified — zoom / font dialog / theme toggle aren't user
@@ -183,6 +227,7 @@ void ApplyFont()
                                 DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
                                 DEFAULT_PITCH | FF_DONTCARE, g_state.fontName.c_str());
     LRESULT oldMask = SendMessageW(g_hwndEditor, EM_SETEVENTMASK, 0, 0);
+    SetEditorUndoSuspended(true);
     SendMessageW(g_hwndEditor, WM_SETFONT, reinterpret_cast<WPARAM>(g_state.hFont), TRUE);
     COLORREF textColor = GetEditorTextColor();
     CHARFORMAT2W cf = {};
@@ -191,6 +236,7 @@ void ApplyFont()
     cf.crTextColor = textColor;
     SendMessageW(g_hwndEditor, EM_SETCHARFORMAT, SCF_ALL, reinterpret_cast<LPARAM>(&cf));
     SendMessageW(g_hwndEditor, EM_SETCHARFORMAT, SCF_DEFAULT, reinterpret_cast<LPARAM>(&cf));
+    SetEditorUndoSuspended(false);
     SendMessageW(g_hwndEditor, EM_SETEVENTMASK, 0, oldMask);
     if (g_state.showLineNumbers && g_hwndGutter && UpdateGutterWidth())
         ResizeControls();
@@ -1139,6 +1185,9 @@ LRESULT CALLBACK EditorSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         // Line-based (EM_GETFIRSTVISIBLELINE) survives RichEdit's layout
         // passes; a pixel-based EM_GETSCROLLPOS snapshot does not.
         g_pinnedFirstLine = static_cast<int>(SendMessageW(hwnd, EM_GETFIRSTVISIBLELINE, 0, 0));
+        DWORD pinSelStart = 0, pinSelEnd = 0;
+        SendMessageW(hwnd, EM_GETSEL, reinterpret_cast<WPARAM>(&pinSelStart), reinterpret_cast<LPARAM>(&pinSelEnd));
+        g_pinnedCaret = static_cast<int>(pinSelStart);
         g_editorDragSelecting = false; // a drag can't be in progress without focus
         break; // let the default handler run too
     }
@@ -1472,6 +1521,7 @@ LRESULT CALLBACK EditorSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             HMENU hTools = CreatePopupMenu();
             AppendMenuW(hTools, MF_STRING, IDM_TOOLS_NORMALIZE, lang.menuToolsNormalize.c_str());
             AppendMenuW(hTools, MF_STRING, IDM_TOOLS_BASE64, lang.menuToolsBase64.c_str());
+            AppendMenuW(hTools, MF_STRING, IDM_TOOLS_BASE64_DECODE, lang.menuToolsBase64Decode.c_str());
             AppendMenuW(hTools, MF_STRING, IDM_TOOLS_SHA1, lang.menuToolsSha1.c_str());
             AppendMenuW(hTools, MF_STRING, IDM_TOOLS_MD5, lang.menuToolsMd5.c_str());
             AppendMenuW(hTools, MF_SEPARATOR, 0, nullptr);

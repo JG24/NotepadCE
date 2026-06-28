@@ -306,6 +306,7 @@ void UpdateMenuStrings()
             SetItemText(hMenu, toolsIdx, TRUE, lang.menuTools.c_str());
             SetItemText(hToolsMenu, IDM_TOOLS_NORMALIZE, FALSE, lang.menuToolsNormalize.c_str());
             SetItemText(hToolsMenu, IDM_TOOLS_BASE64, FALSE, lang.menuToolsBase64.c_str());
+            SetItemText(hToolsMenu, IDM_TOOLS_BASE64_DECODE, FALSE, lang.menuToolsBase64Decode.c_str());
             SetItemText(hToolsMenu, IDM_TOOLS_SHA1, FALSE, lang.menuToolsSha1.c_str());
             SetItemText(hToolsMenu, IDM_TOOLS_MD5, FALSE, lang.menuToolsMd5.c_str());
             SetItemText(hToolsMenu, IDM_TOOLS_UPPERCASE, FALSE, lang.menuToolsUppercase.c_str());
