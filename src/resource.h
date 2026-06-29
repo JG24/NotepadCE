@@ -20,7 +20,7 @@
 
 // Human-readable application version, shown in the About dialog. Keep in
 // sync with the VERSION in CMakeLists.txt and app.manifest.
-#define APP_VERSION L"0.9.1"
+#define APP_VERSION L"0.9.2"
 
 #define IDC_EDITOR 1000
 #define IDC_STATUSBAR 1001

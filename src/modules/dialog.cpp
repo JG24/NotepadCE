@@ -217,6 +217,15 @@ static INT_PTR HandleDialogDarkColors(UINT msg, WPARAM wParam)
     return 0;
 }
 
+// NOTE: the native Find / Replace dialogs (comdlg32) are deliberately left in
+// their default (light) appearance, even under the Dark / Matrix themes. They
+// can't be dark-themed reliably: their window procedure lives in comdlg32, so
+// owner-drawing the buttons leaves them unpainted (invisible), while the
+// WM_CTLCOLOR / visual-style route darkens only some controls — the dialog
+// background stays light and the group box / radio labels render unreadably.
+// A standard light dialog is fully visible and functional, which wins over a
+// half-dark broken one. (A future fully-custom Find dialog could be themed.)
+
 static LRESULT CALLBACK TransparencyDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     switch (msg)
@@ -370,7 +379,6 @@ void EditFind()
     if (g_hwndFindDlg)
     {
         CenterDialogOnParent(g_hwndFindDlg, g_hwndMain);
-        ApplyDialogDarkMode(g_hwndFindDlg);
     }
 }
 
@@ -387,7 +395,6 @@ void EditReplace()
     if (g_hwndFindDlg)
     {
         CenterDialogOnParent(g_hwndFindDlg, g_hwndMain);
-        ApplyDialogDarkMode(g_hwndFindDlg);
     }
 }
 
