@@ -147,4 +147,20 @@ inline LangStrings g_langDE = {
     L"&Kodierung",
     L"Enthaltenden &Ordner öffnen",
     L"Datei&pfad kopieren",
-    L"Base64 zu &Text"};
+    L"Base64 zu &Text",
+
+    L"Schnipsel",
+    L"Neuer &Schnipsel",
+    L"Neuer &Ordner",
+    L"&Einfügen",
+    L"Ö&ffnen",
+    L"&Umbenennen",
+    L"&Löschen",
+    L"Löschen: ",
+    L"Neuer Schnipsel",
+    L"Neuer Ordner",
+
+    L"Zeilen s&ortieren A→Z",
+    L"Zeilen sortieren Z→&A",
+    L"Text zu U&RL",
+    L"URL zu Te&xt"};

@@ -43,6 +43,17 @@ NotepadCE is a fork of [Legacy Notepad](https://github.com/forloopcodes/legacy-n
 - **Show special characters** — visualize spaces, tabs and line endings.
 - **Highlight current line** and **highlight all occurrences of the selected word** — optional, both off by default (toggled in Edit → Settings, to stay close to the classic Notepad); theme-aware translucent fills, no impact on the document itself.
 
+### Snippets
+
+- **Snippets side panel** — a resizable, full-height tree docked to the right edge, mirroring a real `Snippets` directory next to the executable (portable, like everything else: manage it from Explorer, back it up by copying a folder).
+- **Real folders, real `.txt` files** — sub-directories become folder nodes with Explorer's folder icon, `*.txt` files become snippets with the text-document icon; other file types are ignored.
+- **Double-click (or Enter) opens a snippet** for editing — `Ctrl+S` saves straight back to the snippet file.
+- **Insert at caret** — the context menu pastes a snippet's content into the current document without leaving it (undoable).
+- **Create / rename / delete** snippets and folders from the context menu (in-place label editing, `F2`, `Del`); deletion goes to the **Recycle Bin**, never a hard delete.
+- **Drag & drop** to move snippets and folders around the tree.
+- **Remembers everything** — panel visibility, panel width and which folders were expanded survive a restart.
+- Toggled from a quick-access menu-bar icon; follows the Light / Dark / Matrix theme.
+
 ### Search and navigation
 
 - **Find** (`Ctrl+F`) — native `FindTextW` dialog.
@@ -67,7 +78,7 @@ NotepadCE is a fork of [Legacy Notepad](https://github.com/forloopcodes/legacy-n
 - **Three themes** — **Light**, **Dark** and **Matrix** (a near-black background with bright phosphor-green text), chosen from the View menu. The dark theme covers the main window, menus, status bar, dialogs and custom controls. No flicker when switching themes (this took some extra care around `CFE_AUTOBACKCOLOR` in RichEdit, so per-character background color does not bleed across theme changes).
 - **Owner-drawn menus** in dark mode — with proper hover handling on the menu bar (`WM_NCMOUSEMOVE` / `WM_NCMOUSELEAVE`).
 - **Status bar** with six sections: character / selection counter, total lines, current row, current column, encoding, line-ending format.
-- **Quick-access icons** on the menu bar (right-aligned): insert special character, spell-checker, theme toggle and always-on-top — each with a hover tooltip.
+- **Quick-access icons** on the menu bar (right-aligned): insert special character, spell-checker, theme toggle, snippets panel and always-on-top — each with a hover tooltip.
 - **Always-on-top** (View menu).
 - **Window transparency** — adjustable from 10% to 100%.
 - **Persistent settings** — chosen theme, font, language, status-bar layout and recent files are remembered between sessions.
@@ -91,10 +102,12 @@ NotepadCE is a fork of [Legacy Notepad](https://github.com/forloopcodes/legacy-n
   - Repeated spaces are collapsed into a single one.
   - Stretches of blank lines are capped at a maximum of two.
 - **Text to Base64** and **Base64 to Text** — two separate entries to encode the selection to Base64 (UTF-8) or decode it back.
+- **Text to URL** and **URL to Text** — percent-encoding (RFC 3986, UTF-8) and its inverse, e.g. `ż` ↔ `%C5%BC`.
 - **SHA-1** of the current selection (bcrypt API).
 - **MD5** of the current selection (bcrypt API).
 - **Change case** — UPPERCASE, lowercase, Title Case.
 - **Trim trailing whitespace**, and **convert tabs to spaces** or back.
+- **Sort lines A→Z / Z→A** — locale-aware and case-insensitive, so `ć`, `ł`, `ż` land where the alphabet says, not at the end like an ASCII sort.
 - **Reverse lines** and **join lines**.
 - **Remove empty lines** and **remove duplicate lines** (keeps the first occurrence, order preserved).
 
@@ -150,7 +163,7 @@ Every tool acts on the current selection, or on the whole document when nothing 
 
 - **Windows 8** or newer (`_WIN32_WINNT=0x0602`). Tested on **Windows 11**.
 - No runtime dependencies — everything is linked statically (GCC: `-static -static-libgcc -static-libstdc++`).
-- Single executable (~455 KB).
+- Single executable (~490 KB).
 
 ---
 
@@ -248,11 +261,12 @@ src/
     ├── dialog.{h,cpp}       — find / replace / goto / transparency / about
     ├── commands.{h,cpp}     — menu and accelerator command handlers
     ├── menu.{h,cpp}         — menu construction and refresh (owner-draw)
-    ├── settings.{h,cpp}     — settings persistence (registry)
+    ├── settings.{h,cpp}     — settings persistence (JSON next to the EXE)
     ├── spellchecker.{h,cpp} — Windows Spell Checking API
-    ├── tools.{h,cpp}        — normalization, base64, SHA1, MD5
+    ├── tools.{h,cpp}        — normalization, base64, URL, sorting, SHA1, MD5
     ├── gutter.{h,cpp}       — line numbers (custom-drawn)
-    └── quickicons.{h,cpp}   — menu-bar quick-access icons
+    ├── quickicons.{h,cpp}   — menu-bar quick-access icons
+    └── snippets.{h,cpp}     — snippets side panel (TreeView over Snippets\)
 ```
 
 ### Design principles

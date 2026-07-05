@@ -47,8 +47,9 @@ bool ConfirmDiscard()
     int result = MessageBoxW(g_hwndMain, msg.c_str(), lang.appName.c_str(), MB_YESNOCANCEL | MB_ICONWARNING);
     if (result == IDYES)
     {
-        FileSave();
-        return true;
+        // Only discard if the save actually happened — the user can still
+        // cancel the Save As dialog, or the write itself can fail.
+        return FileSave();
     }
     return result == IDNO;
 }
@@ -82,15 +83,14 @@ void FileOpen()
         LoadFile(path);
 }
 
-void FileSave()
+bool FileSave()
 {
     if (g_state.filePath.empty())
-        FileSaveAs();
-    else
-        SaveToPath(g_state.filePath);
+        return FileSaveAs();
+    return SaveToPath(g_state.filePath);
 }
 
-void FileSaveAs()
+bool FileSaveAs()
 {
     wchar_t path[MAX_PATH] = {0};
     OPENFILENAMEW ofn = {};
@@ -101,8 +101,9 @@ void FileSaveAs()
     ofn.nMaxFile = MAX_PATH;
     ofn.lpstrDefExt = L"txt";
     ofn.Flags = OFN_OVERWRITEPROMPT | OFN_ENABLESIZING;
-    if (GetSaveFileNameW(&ofn))
-        SaveToPath(path);
+    if (!GetSaveFileNameW(&ofn))
+        return false;
+    return SaveToPath(path);
 }
 
 void FilePrint()
@@ -113,7 +114,12 @@ void FilePrint()
     pd.hwndOwner = g_hwndMain;
     pd.Flags = PD_RETURNDC | PD_NOPAGENUMS | PD_NOSELECTION;
     if (!PrintDlgW(&pd))
+    {
+        // PrintDlg can allocate these even on cancel; we own them.
+        if (pd.hDevMode) GlobalFree(pd.hDevMode);
+        if (pd.hDevNames) GlobalFree(pd.hDevNames);
         return;
+    }
     HDC hDC = pd.hDC;
     DOCINFOW di = {};
     di.cbSize = sizeof(di);
@@ -132,10 +138,15 @@ void FilePrint()
                                        OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, PROOF_QUALITY,
                                        FIXED_PITCH | FF_MODERN, g_state.fontName.c_str());
         HFONT hOldFont = reinterpret_cast<HFONT>(SelectObject(hDC, hPrintFont));
-        TEXTMETRICW tm;
-        GetTextMetricsW(hDC, &tm);
-        int lineHeight = tm.tmHeight + tm.tmExternalLeading;
+        TEXTMETRICW tm{};
+        int lineHeight = 0;
+        if (GetTextMetricsW(hDC, &tm))
+            lineHeight = tm.tmHeight + tm.tmExternalLeading;
+        if (lineHeight <= 0)
+            lineHeight = 1; // degenerate metrics: never divide by zero below
         int linesPerPage = printHeight / lineHeight;
+        if (linesPerPage < 1)
+            linesPerPage = 1; // degenerate page geometry: keep the page loop advancing
         std::vector<std::wstring> lines;
         std::wstring line;
         for (size_t i = 0; i <= text.size(); ++i)
@@ -169,6 +180,8 @@ void FilePrint()
         EndDoc(hDC);
     }
     DeleteDC(hDC);
+    if (pd.hDevMode) GlobalFree(pd.hDevMode);
+    if (pd.hDevNames) GlobalFree(pd.hDevNames);
 }
 
 void FilePageSetup()

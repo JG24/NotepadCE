@@ -244,11 +244,28 @@ void LoadFile(const std::wstring &path)
         MessageBoxW(g_hwndMain, lang.msgCannotOpenFile.c_str(), lang.msgError.c_str(), MB_ICONERROR);
         return;
     }
-    DWORD size = GetFileSize(hFile, nullptr);
+    // GetFileSizeEx distinguishes a real error from a huge file; anything
+    // that doesn't fit in a DWORD is beyond what the editor can hold anyway.
+    LARGE_INTEGER fileSize{};
+    if (!GetFileSizeEx(hFile, &fileSize) || fileSize.HighPart != 0)
+    {
+        CloseHandle(hFile);
+        MessageBoxW(g_hwndMain, lang.msgCannotOpenFile.c_str(), lang.msgError.c_str(), MB_ICONERROR);
+        return;
+    }
+    DWORD size = fileSize.LowPart;
     std::vector<BYTE> data(size);
     DWORD read = 0;
-    ReadFile(hFile, data.data(), size, &read, nullptr);
+    BOOL ok = size == 0 ? TRUE : ReadFile(hFile, data.data(), size, &read, nullptr);
     CloseHandle(hFile);
+    // A failed or partial read must not reach the editor: the blank result
+    // would look like a loaded document and a later Ctrl+S would overwrite
+    // the original file with it.
+    if (!ok || read != size)
+    {
+        MessageBoxW(g_hwndMain, lang.msgCannotOpenFile.c_str(), lang.msgError.c_str(), MB_ICONERROR);
+        return;
+    }
     auto [enc, le] = DetectEncoding(data);
     std::wstring text = DecodeText(data, enc);
     SetEditorText(text);
@@ -261,25 +278,48 @@ void LoadFile(const std::wstring &path)
     AddRecentFile(path);
 }
 
-void SaveToPath(const std::wstring &path)
+bool SaveToPath(const std::wstring &path)
 {
     const auto &lang = GetLangStrings();
     std::wstring text = GetEditorText();
     std::vector<BYTE> data = EncodeText(text, g_state.encoding, g_state.lineEnding);
-    HANDLE hFile = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr,
+    // Write to a temp file in the same directory, then swap it into place.
+    // CREATE_ALWAYS directly on the target would truncate it to zero before
+    // writing, so a failed write (disk full, network drop) would destroy the
+    // user's file; this way the original stays intact until the new bytes
+    // are fully on disk.
+    std::wstring tmp = path + L".~tmp";
+    HANDLE hFile = CreateFileW(tmp.c_str(), GENERIC_WRITE, 0, nullptr,
                                CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (hFile == INVALID_HANDLE_VALUE)
     {
         MessageBoxW(g_hwndMain, lang.msgCannotSaveFile.c_str(), lang.msgError.c_str(), MB_ICONERROR);
-        return;
+        return false;
     }
     DWORD written = 0;
-    WriteFile(hFile, data.data(), static_cast<DWORD>(data.size()), &written, nullptr);
+    BOOL ok = WriteFile(hFile, data.data(), static_cast<DWORD>(data.size()), &written, nullptr);
+    ok = ok && written == data.size() && FlushFileBuffers(hFile);
     CloseHandle(hFile);
+    if (!ok)
+    {
+        DeleteFileW(tmp.c_str());
+        MessageBoxW(g_hwndMain, lang.msgCannotSaveFile.c_str(), lang.msgError.c_str(), MB_ICONERROR);
+        return false;
+    }
+    // ReplaceFileW keeps the target's attributes/ACLs when it already
+    // exists; MoveFileExW covers the brand-new-file case.
+    if (!ReplaceFileW(path.c_str(), tmp.c_str(), nullptr, 0, nullptr, nullptr) &&
+        !MoveFileExW(tmp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+    {
+        DeleteFileW(tmp.c_str());
+        MessageBoxW(g_hwndMain, lang.msgCannotSaveFile.c_str(), lang.msgError.c_str(), MB_ICONERROR);
+        return false;
+    }
     g_state.filePath = path;
     g_state.modified = false;
     UpdateTitle();
     AddRecentFile(path);
+    return true;
 }
 
 void AddRecentFile(const std::wstring &path)

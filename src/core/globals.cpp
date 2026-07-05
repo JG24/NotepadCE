@@ -18,6 +18,7 @@
 HWND g_hwndMain = nullptr;
 HWND g_hwndEditor = nullptr;
 HWND g_hwndGutter = nullptr;
+HWND g_hwndSnippets = nullptr;
 HWND g_hwndStatus = nullptr;
 HWND g_hwndFindDlg = nullptr;
 HWND g_hwndTransparencyDlg = nullptr;

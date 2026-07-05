@@ -18,6 +18,10 @@ void ToolsReverseLines();
 void ToolsJoinLines();
 void ToolsRemoveEmptyLines();
 void ToolsRemoveDuplicateLines();
+void ToolsSortLinesAsc();
+void ToolsSortLinesDesc();
+void ToolsUrlEncode();
+void ToolsUrlDecode();
 
 // Adds/removes the top-level "Tools" menu from the menu bar based on
 // g_state.toolsEnabled. Call after WM_CREATE and from the toggle handler.

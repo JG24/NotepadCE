@@ -38,6 +38,7 @@
 #include "modules/tools.h"
 #include "modules/gutter.h"
 #include "modules/quickicons.h"
+#include "modules/snippets.h"
 #include "lang/lang.h"
 
 static bool g_ncMouseTracking = false;
@@ -100,6 +101,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                                        0, 0, 100, 100, hwnd, reinterpret_cast<HMENU>(IDC_EDITOR), GetModuleHandleW(nullptr), nullptr);
         g_origEditorProc = reinterpret_cast<WNDPROC>(SetWindowLongPtrW(g_hwndEditor, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(EditorSubclassProc)));
         CreateGutterWindow(hwnd);
+        CreateSnippetsWindow(hwnd);
         g_hwndStatus = CreateWindowExW(0, STATUSCLASSNAMEW, nullptr,
                                        WS_CHILD | WS_VISIBLE | SBARS_SIZEGRIP, 0, 0, 0, 0, hwnd, reinterpret_cast<HMENU>(IDC_STATUSBAR), GetModuleHandleW(nullptr), nullptr);
         g_origStatusProc = reinterpret_cast<WNDPROC>(SetWindowLongPtrW(g_hwndStatus, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(StatusSubclassProc)));
@@ -117,6 +119,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         UpdateLanguageMenu();
         UpdateToolsMenuVisibility();
         UpdateQuickIconsVisibility();
+        UpdateSnippetsVisibility();
         UpdateRecentFilesMenu();
         if (g_state.alwaysOnTop)
             SetWindowPos(g_hwndMain, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
@@ -407,6 +410,35 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         ResizeControls();
         UpdateStatus();
         return 0;
+    case WM_SNIPPETS_REFRESH:
+        RefreshSnippetTree();
+        return 0;
+    case WM_PAINT:
+    {
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint(hwnd, &ps);
+        DrawSnippetsSplitter(hdc);
+        EndPaint(hwnd, &ps);
+        return 0;
+    }
+    // Snippets-panel splitter: the gap between the editor and the panel is
+    // bare main-window client area, so its mouse traffic lands here.
+    case WM_SETCURSOR:
+        if (SnippetsHandleSetCursor())
+            return TRUE;
+        break;
+    case WM_LBUTTONDOWN:
+        if (SnippetsHandleLButtonDown(lParam))
+            return 0;
+        break;
+    case WM_MOUSEMOVE:
+        if (SnippetsHandleMouseMove(lParam))
+            return 0;
+        break;
+    case WM_LBUTTONUP:
+        if (SnippetsHandleLButtonUp())
+            return 0;
+        break;
     case WM_TIMER:
         if (wParam == SPELL_CHECK_TIMER_ID)
         {
@@ -748,6 +780,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         case IDM_QUICK_SPELLCHECK:
         case IDM_QUICK_ONTOP:
         case IDM_QUICK_DARKMODE:
+        case IDM_QUICK_SNIPPETS:
             HandleQuickIconClick(cmd);
             SaveSettings();
             break;
@@ -788,6 +821,18 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             break;
         case IDM_TOOLS_SPACES2TABS:
             ToolsSpacesToTabs();
+            break;
+        case IDM_TOOLS_SORTASC:
+            ToolsSortLinesAsc();
+            break;
+        case IDM_TOOLS_SORTDESC:
+            ToolsSortLinesDesc();
+            break;
+        case IDM_TOOLS_URLENCODE:
+            ToolsUrlEncode();
+            break;
+        case IDM_TOOLS_URLDECODE:
+            ToolsUrlDecode();
             break;
         case IDM_TOOLS_REVERSELINES:
             ToolsReverseLines();
@@ -834,6 +879,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_NOTIFY:
     {
         NMHDR *pnmh = reinterpret_cast<NMHDR *>(lParam);
+        if (pnmh->hwndFrom == g_hwndSnippets)
+        {
+            bool handled = false;
+            LRESULT r = HandleSnippetsNotify(pnmh, &handled);
+            if (handled)
+                return r;
+        }
         if (pnmh->hwndFrom == g_hwndStatus && pnmh->code == NM_CUSTOMDRAW)
         {
             if (IsDarkMode())
@@ -958,6 +1010,11 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR lpCmdLine, int nCmdSh
     g_hwndMain = CreateWindowExW(0, L"NotepadClass", initialTitle.c_str(),
                                  WS_OVERLAPPEDWINDOW | WS_MAXIMIZEBOX, g_state.windowX, g_state.windowY, g_state.windowWidth, g_state.windowHeight,
                                  nullptr, nullptr, hInstance, nullptr);
+    // Class registration or WM_CREATE failed (e.g. missing RichEdit DLL —
+    // the error box was already shown). Without this, GetMessage below would
+    // wait forever with no window and no WM_QUIT: an invisible hung process.
+    if (!g_hwndMain)
+        return 1;
     g_hAccel = LoadAcceleratorsW(hInstance, MAKEINTRESOURCEW(IDR_ACCEL));
     ShowWindow(g_hwndMain, nCmdShow);
     UpdateWindow(g_hwndMain);
@@ -982,7 +1039,13 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR lpCmdLine, int nCmdSh
             continue;
         if (g_hwndAboutDlg && IsDialogMessageW(g_hwndAboutDlg, &msg))
             continue;
-        if (!TranslateAcceleratorW(g_hwndMain, g_hAccel, &msg))
+        // While the snippets tree (or its in-place label editor) has focus,
+        // accelerators must not fire — Ctrl+A/Z/Del belong to the edit box
+        // and Del/F2/Enter to the tree's own key handling.
+        HWND focus = GetFocus();
+        bool inSnippets = focus && g_hwndSnippets &&
+                          (focus == g_hwndSnippets || IsChild(g_hwndSnippets, focus));
+        if (inSnippets || !TranslateAcceleratorW(g_hwndMain, g_hAccel, &msg))
         {
             TranslateMessage(&msg);
             DispatchMessageW(&msg);

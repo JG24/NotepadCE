@@ -26,6 +26,6 @@ std::pair<Encoding, LineEnding> DetectEncoding(const std::vector<BYTE> &data);
 std::wstring DecodeText(const std::vector<BYTE> &data, Encoding enc);
 std::vector<BYTE> EncodeText(const std::wstring &text, Encoding enc, LineEnding le);
 void LoadFile(const std::wstring &path);
-void SaveToPath(const std::wstring &path);
+bool SaveToPath(const std::wstring &path);
 void AddRecentFile(const std::wstring &path);
 void UpdateRecentFilesMenu();

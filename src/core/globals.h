@@ -22,6 +22,7 @@
 extern HWND g_hwndMain;
 extern HWND g_hwndEditor;
 extern HWND g_hwndGutter;
+extern HWND g_hwndSnippets;
 extern HWND g_hwndStatus;
 extern HWND g_hwndFindDlg;
 extern HWND g_hwndTransparencyDlg;

@@ -18,6 +18,7 @@
 #include <windows.h>
 #include <string>
 #include <deque>
+#include <vector>
 
 #define APP_NAME L"Notepad"
 #define ZOOM_MIN 25
@@ -114,6 +115,12 @@ struct AppState
     // in the editor's WM_PAINT (no RichEdit formatting touched).
     bool highlightCurrentLine = false;
     bool highlightOccurrences = false;
+    // Snippets side panel (tree over <exe dir>\Snippets).
+    bool snippetsPanelVisible = false;
+    int snippetsPanelWidth = 200;
+    // Expanded folders (paths relative to the Snippets root), persisted so
+    // the tree reopens exactly as it was closed.
+    std::vector<std::wstring> snippetsExpanded;
     int windowX = CW_USEDEFAULT;
     int windowY = CW_USEDEFAULT;
     int windowWidth = 640;

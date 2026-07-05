@@ -12,6 +12,7 @@
 #include "core/types.h"
 #include "theme.h"
 #include "spellchecker.h"
+#include "snippets.h"
 #include "resource.h"
 #include "ui.h"
 #include "lang/lang.h"
@@ -28,6 +29,7 @@ static bool IconState(UINT id)
     case IDM_QUICK_SPELLCHECK: return g_state.spellCheckEnabled;
     case IDM_QUICK_ONTOP:      return g_state.alwaysOnTop;
     case IDM_QUICK_DARKMODE:   return IsDarkMode();
+    case IDM_QUICK_SNIPPETS:   return g_state.snippetsPanelVisible;
     }
     return false;
 }
@@ -35,7 +37,8 @@ static bool IconState(UINT id)
 bool IsQuickIconId(UINT id)
 {
     return id == IDM_QUICK_SPELLCHECK || id == IDM_QUICK_ONTOP ||
-           id == IDM_QUICK_DARKMODE || id == IDM_QUICK_INSERTCHAR;
+           id == IDM_QUICK_DARKMODE || id == IDM_QUICK_INSERTCHAR ||
+           id == IDM_QUICK_SNIPPETS;
 }
 
 // The nine glyphs offered by the insert-special-character popup, in the
@@ -73,9 +76,9 @@ void UpdateQuickIconsVisibility()
         return;
 
     // Display order, left to right: insert special char, spell check,
-    // theme toggle, always on top.
+    // theme toggle, snippets panel, always on top.
     const UINT ids[] = { IDM_QUICK_INSERTCHAR, IDM_QUICK_SPELLCHECK,
-                         IDM_QUICK_DARKMODE, IDM_QUICK_ONTOP };
+                         IDM_QUICK_DARKMODE, IDM_QUICK_SNIPPETS, IDM_QUICK_ONTOP };
     const int count = static_cast<int>(sizeof(ids) / sizeof(ids[0]));
 
     bool present = FindMenuItemIndex(hMenu, IDM_QUICK_INSERTCHAR) != -1;
@@ -292,6 +295,37 @@ static void DrawInsertCharIcon(HDC hdc, RECT rc, bool dark)
     DeleteObject(hFont);
 }
 
+static void DrawSnippetsIcon(HDC hdc, RECT rc, bool active, bool dark)
+{
+    int cx = (rc.left + rc.right) / 2;
+    int cy = (rc.top + rc.bottom) / 2;
+
+    COLORREF c;
+    if (active)
+        c = dark ? RGB(120, 180, 255) : RGB(0, 100, 200);
+    else
+        c = dark ? RGB(170, 170, 170) : RGB(120, 120, 120);
+
+    // Window outline with a right-hand side panel; the panel pane is
+    // filled when the snippets panel is visible.
+    HPEN pen = CreatePen(PS_SOLID, 1, c);
+    HGDIOBJ oldPen = SelectObject(hdc, pen);
+    HGDIOBJ oldBrush = SelectObject(hdc, GetStockObject(HOLLOW_BRUSH));
+    Rectangle(hdc, cx - 8, cy - 6, cx + 8, cy + 7);
+    MoveToEx(hdc, cx + 2, cy - 6, nullptr);
+    LineTo(hdc, cx + 2, cy + 7);
+    if (active)
+    {
+        HBRUSH fill = CreateSolidBrush(c);
+        RECT pane = {cx + 3, cy - 5, cx + 7, cy + 6};
+        FillRect(hdc, &pane, fill);
+        DeleteObject(fill);
+    }
+    SelectObject(hdc, oldBrush);
+    SelectObject(hdc, oldPen);
+    DeleteObject(pen);
+}
+
 // ---- Item drawing ----------------------------------------------------------
 
 void DrawQuickIconItem(const DRAWITEMSTRUCT *dis)
@@ -332,6 +366,9 @@ void DrawQuickIconItem(const DRAWITEMSTRUCT *dis)
     case IDM_QUICK_INSERTCHAR:
         DrawInsertCharIcon(dis->hDC, dis->rcItem, dark);
         break;
+    case IDM_QUICK_SNIPPETS:
+        DrawSnippetsIcon(dis->hDC, dis->rcItem, state, dark);
+        break;
     }
 }
 
@@ -362,6 +399,10 @@ void HandleQuickIconClick(UINT id)
         break;
     case IDM_QUICK_DARKMODE:
         ToggleDarkMode();
+        break;
+    case IDM_QUICK_SNIPPETS:
+        g_state.snippetsPanelVisible = !g_state.snippetsPanelVisible;
+        UpdateSnippetsVisibility();
         break;
     case IDM_QUICK_INSERTCHAR:
     {
@@ -426,6 +467,7 @@ static const wchar_t *QuickIconTooltipText(UINT id)
     case IDM_QUICK_ONTOP:      return s.tipQuickOnTop.c_str();
     case IDM_QUICK_DARKMODE:   return s.tipQuickTheme.c_str();
     case IDM_QUICK_INSERTCHAR: return s.tipQuickInsertChar.c_str();
+    case IDM_QUICK_SNIPPETS:   return s.tipQuickSnippets.c_str();
     }
     return L"";
 }
@@ -476,7 +518,7 @@ void ShowQuickIconTooltip(POINT ptScreen)
         return;
 
     const UINT ids[] = { IDM_QUICK_INSERTCHAR, IDM_QUICK_SPELLCHECK,
-                         IDM_QUICK_DARKMODE, IDM_QUICK_ONTOP };
+                         IDM_QUICK_DARKMODE, IDM_QUICK_SNIPPETS, IDM_QUICK_ONTOP };
     UINT hitId = 0;
     RECT hitRc = {};
     for (UINT id : ids)

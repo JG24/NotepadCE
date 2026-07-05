@@ -1141,6 +1141,7 @@ LRESULT CALLBACK EditorSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 HDC memDC = CreateCompatibleDC(hdc);
                 void *bits = nullptr;
                 HBITMAP bmp = nullptr;
+                HBITMAP oldBmp = nullptr;
                 if (memDC)
                 {
                     BITMAPINFO bi{};
@@ -1152,7 +1153,7 @@ LRESULT CALLBACK EditorSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                     bi.bmiHeader.biCompression = BI_RGB;
                     bmp = CreateDIBSection(memDC, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
                     if (bmp)
-                        SelectObject(memDC, bmp);
+                        oldBmp = static_cast<HBITMAP>(SelectObject(memDC, bmp));
                 }
                 if (memDC && bmp && bits)
                 {
@@ -1162,7 +1163,12 @@ LRESULT CALLBACK EditorSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                         DrawOccurrenceHighlights(hwnd, hdc, memDC, bits);
                 }
                 if (bmp)
+                {
+                    // Deselect first: DeleteObject silently fails on a bitmap
+                    // still selected into a DC, leaking one handle per paint.
+                    SelectObject(memDC, oldBmp);
                     DeleteObject(bmp);
+                }
                 if (memDC)
                     DeleteDC(memDC);
                 ReleaseDC(hwnd, hdc);
@@ -1470,6 +1476,10 @@ LRESULT CALLBACK EditorSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         int delta = GET_WHEEL_DELTA_WPARAM(wParam);
         UINT scrollChars = 3;
         SystemParametersInfoW(SPI_GETWHEELSCROLLCHARS, 0, &scrollChars, 0);
+        // WHEEL_PAGESCROLL (UINT_MAX) or a bogus driver value would spin the
+        // loop below for billions of synchronous sends — hang.
+        if (scrollChars > 100)
+            scrollChars = 3;
         if (delta != 0)
         {
             for (UINT i = 0; i < scrollChars; ++i)

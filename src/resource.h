@@ -20,10 +20,11 @@
 
 // Human-readable application version, shown in the About dialog. Keep in
 // sync with the VERSION in CMakeLists.txt and app.manifest.
-#define APP_VERSION L"0.9.2"
+#define APP_VERSION L"0.9.5"
 
 #define IDC_EDITOR 1000
 #define IDC_STATUSBAR 1001
+#define IDC_SNIPPETS 1002
 
 #define IDM_FILE_NEW 40001
 #define IDM_FILE_OPEN 40002
@@ -114,11 +115,16 @@
 #define IDM_TOOLS_REMOVEEMPTY 40212
 #define IDM_TOOLS_REMOVEDUPES 40213
 #define IDM_TOOLS_BASE64_DECODE 40214
+#define IDM_TOOLS_SORTASC 40215
+#define IDM_TOOLS_SORTDESC 40216
+#define IDM_TOOLS_URLENCODE 40217
+#define IDM_TOOLS_URLDECODE 40218
 
 #define IDM_QUICK_SPELLCHECK 40300
 #define IDM_QUICK_ONTOP 40301
 #define IDM_QUICK_DARKMODE 40302
 #define IDM_QUICK_INSERTCHAR 40303
+#define IDM_QUICK_SNIPPETS 40304
 
 // Special-character insert commands — the list popped up from the
 // quick-access "insert symbol" icon. Consecutive; order matches the popup.

@@ -94,7 +94,14 @@ struct JsonObj
     int getInt(const char *k, int def) const
     {
         auto it = nums.find(k);
-        return it != nums.end() ? static_cast<int>(it->second) : def;
+        if (it == nums.end())
+            return def;
+        // NaN or an out-of-int-range double makes the cast undefined
+        // behaviour — treat such values as absent.
+        double v = it->second;
+        if (!(v >= -2147483648.0 && v <= 2147483647.0))
+            return def;
+        return static_cast<int>(v);
     }
     bool getBool(const char *k, bool def) const
     {
@@ -253,6 +260,14 @@ static std::string readFileUtf8(const std::wstring &path)
     if (h == INVALID_HANDLE_VALUE)
         return {};
     DWORD size = GetFileSize(h, nullptr);
+    // INVALID_FILE_SIZE (error / >4 GB) or an absurdly large config would
+    // otherwise feed the allocation below and crash-loop every startup —
+    // the file sits next to the EXE, so a corrupt one is easy to get.
+    if (size == INVALID_FILE_SIZE || size > 4u * 1024 * 1024)
+    {
+        CloseHandle(h);
+        return {};
+    }
     std::string content(size, 0);
     DWORD read = 0;
     ReadFile(h, content.data(), size, &read, nullptr);
@@ -294,12 +309,27 @@ static void DoLoad()
     g_state.fontItalic = obj.getBool("fontItalic", g_state.fontItalic);
     g_state.fontUnderline = obj.getBool("fontUnderline", g_state.fontUnderline);
 
-    g_state.windowX = obj.getInt("windowX", g_state.windowX);
-    g_state.windowY = obj.getInt("windowY", g_state.windowY);
+    // Clamp to sane bounds: corrupt values would overflow the guard-rect
+    // math at the end of DoLoad and produce a degenerate window. X/Y keep
+    // the CW_USEDEFAULT sentinel intact; ±100k covers any real multi-monitor
+    // virtual desktop.
+    auto clampInt = [](int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); };
+    int wx = obj.getInt("windowX", g_state.windowX);
+    int wy = obj.getInt("windowY", g_state.windowY);
+    if (wx != CW_USEDEFAULT) wx = clampInt(wx, -100000, 100000);
+    if (wy != CW_USEDEFAULT) wy = clampInt(wy, -100000, 100000);
+    g_state.windowX = wx;
+    g_state.windowY = wy;
+    // Size: at most twice the virtual desktop (fallback 4000 if metrics
+    // fail), so a corrupt value can't create a monster window.
+    int maxW = GetSystemMetrics(SM_CXVIRTUALSCREEN) * 2;
+    int maxH = GetSystemMetrics(SM_CYVIRTUALSCREEN) * 2;
+    if (maxW < 2000) maxW = 4000;
+    if (maxH < 2000) maxH = 4000;
     int w = obj.getInt("windowWidth", g_state.windowWidth);
     int h = obj.getInt("windowHeight", g_state.windowHeight);
-    if (w > 0) g_state.windowWidth = w;
-    if (h > 0) g_state.windowHeight = h;
+    if (w > 0) g_state.windowWidth = clampInt(w, 100, maxW);
+    if (h > 0) g_state.windowHeight = clampInt(h, 100, maxH);
 
     g_state.alwaysOnTop  = obj.getBool("alwaysOnTop", g_state.alwaysOnTop);
     g_state.wordWrap     = obj.getBool("wordWrap", g_state.wordWrap);
@@ -328,11 +358,30 @@ static void DoLoad()
     g_state.quickAccessIcons = obj.getBool("quickAccessIcons", g_state.quickAccessIcons);
     g_state.highlightCurrentLine = obj.getBool("highlightCurrentLine", g_state.highlightCurrentLine);
     g_state.highlightOccurrences = obj.getBool("highlightOccurrences", g_state.highlightOccurrences);
+    g_state.snippetsPanelVisible = obj.getBool("snippetsPanelVisible", g_state.snippetsPanelVisible);
+    g_state.snippetsPanelWidth =
+        clampInt(obj.getInt("snippetsPanelWidth", g_state.snippetsPanelWidth), 175, 2000);
+
+    auto expanded = obj.getArr("snippetsExpanded");
+    g_state.snippetsExpanded.clear();
+    for (auto &f : expanded)
+    {
+        if (g_state.snippetsExpanded.size() >= 500) // corrupt-config cap
+            break;
+        g_state.snippetsExpanded.push_back(f);
+    }
 
     auto recent = obj.getArr("recentFiles");
     g_state.recentFiles.clear();
     for (auto &f : recent)
+    {
+        // Same cap AddRecentFile enforces — a corrupt config with thousands
+        // of entries would flood the menu and walk IDM_FILE_RECENT_BASE+i
+        // into unrelated command IDs.
+        if (g_state.recentFiles.size() >= MAX_RECENT_FILES)
+            break;
         g_state.recentFiles.push_back(f);
+    }
 
     int langVal = obj.getInt("language", -1);
     if (langVal >= 0 && langVal <= 7) // 0..7 = EN/JA/PL/DE/CS/UK/LT/RU
@@ -402,6 +451,20 @@ static void DoSave()
     kvBool("quickAccessIcons", g_state.quickAccessIcons);
     kvBool("highlightCurrentLine", g_state.highlightCurrentLine);
     kvBool("highlightOccurrences", g_state.highlightOccurrences);
+    kvBool("snippetsPanelVisible", g_state.snippetsPanelVisible);
+    kvInt ("snippetsPanelWidth",   g_state.snippetsPanelWidth);
+
+    out += "  \"snippetsExpanded\": [";
+    bool firstExp = true;
+    for (auto &f : g_state.snippetsExpanded)
+    {
+        if (!firstExp) out += ", ";
+        out += "\"";
+        out += JsonEscape(f);
+        out += "\"";
+        firstExp = false;
+    }
+    out += "],\n";
 
     out += "  \"recentFiles\": [";
     bool first = true;

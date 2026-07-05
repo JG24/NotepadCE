@@ -147,4 +147,20 @@ inline LangStrings g_langEN = {
     L"&Encoding",
     L"Open Containing &Folder",
     L"&Copy File Path",
-    L"Base64 to &Text"};
+    L"Base64 to &Text",
+
+    L"Snippets",
+    L"New &Snippet",
+    L"New &Folder",
+    L"&Insert",
+    L"&Open",
+    L"&Rename",
+    L"&Delete",
+    L"Delete ",
+    L"New snippet",
+    L"New folder",
+
+    L"S&ort Lines A→Z",
+    L"Sort Lines Z→&A",
+    L"Text to U&RL",
+    L"URL to Te&xt"};

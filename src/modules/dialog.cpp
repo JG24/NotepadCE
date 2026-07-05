@@ -635,6 +635,13 @@ void FormatFont()
 
 void ViewTransparency()
 {
+    // Modeless: a second instance would clobber the shared control handles
+    // (and closing either would null them under the survivor).
+    if (g_hwndTransparencyDlg)
+    {
+        SetForegroundWindow(g_hwndTransparencyDlg);
+        return;
+    }
     const auto &lang = GetLangStrings();
     g_transparencyOriginal = g_state.windowOpacity;
     int pct = g_state.windowOpacity * 100 / 255;
@@ -833,9 +840,16 @@ void HelpAbout()
                     PAD, y, W - PAD * 2, 2, hDlg, nullptr, nullptr, nullptr);
     y += SEP_GAP;
 
-    // Build number, left-aligned, just above the OK button:
-    // "<label> YYYYMMDDHHMM".
-    std::wstring buildLine = L"NotepadCE " APP_VERSION L"   " + lang.aboutBuild + L" " + BUILD_NUMBER;
+    // Build stamp, left-aligned, just above the OK button. BUILD_NUMBER is
+    // the raw compile timestamp "YYYYMMDDHHMM" — reformat it into a
+    // readable "YYYY-MM-DD HH:MM".
+    std::wstring bn = BUILD_NUMBER;
+    std::wstring buildStamp =
+        bn.size() == 12
+            ? bn.substr(0, 4) + L"-" + bn.substr(4, 2) + L"-" + bn.substr(6, 2) + L" " +
+                  bn.substr(8, 2) + L":" + bn.substr(10, 2)
+            : bn;
+    std::wstring buildLine = L"NotepadCE " APP_VERSION L"   " + lang.aboutBuild + L" " + buildStamp;
     CreateWindowExW(0, L"STATIC", buildLine.c_str(),
                     WS_CHILD | WS_VISIBLE,
                     PAD, y, W - PAD * 2, LINE_H, hDlg, nullptr, nullptr, nullptr);
@@ -941,6 +955,12 @@ static LRESULT CALLBACK DateFormatDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LP
 
 void EditSettingsDateFormat()
 {
+    // Modeless: a second instance would clobber the shared control handles.
+    if (g_hwndDateFormatDlg)
+    {
+        SetForegroundWindow(g_hwndDateFormatDlg);
+        return;
+    }
     const auto &lang = GetLangStrings();
 
     const int W = 520, H = 270;

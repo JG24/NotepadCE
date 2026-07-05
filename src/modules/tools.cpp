@@ -633,6 +633,130 @@ void ToolsRemoveDuplicateLines()
     ReplaceTargetText(JoinWithCR(kept), wasSelection);
 }
 
+// Locale-aware, case-insensitive comparison via the user's regional
+// settings — ż/ź/ó land where the alphabet says, not at the end like an
+// ordinal sort would put them.
+static bool LineLessLocale(const std::wstring &a, const std::wstring &b)
+{
+    int r = CompareStringEx(LOCALE_NAME_USER_DEFAULT, LINGUISTIC_IGNORECASE,
+                            a.c_str(), static_cast<int>(a.size()),
+                            b.c_str(), static_cast<int>(b.size()), nullptr, nullptr, 0);
+    return r == CSTR_LESS_THAN;
+}
+
+void ToolsSortLinesAsc()
+{
+    bool wasSelection = false;
+    std::wstring text = GetTargetText(&wasSelection);
+    if (text.empty())
+        return;
+    auto lines = SplitLines(text);
+    std::stable_sort(lines.begin(), lines.end(), LineLessLocale);
+    ReplaceTargetText(JoinWithCR(lines), wasSelection);
+}
+
+void ToolsSortLinesDesc()
+{
+    bool wasSelection = false;
+    std::wstring text = GetTargetText(&wasSelection);
+    if (text.empty())
+        return;
+    auto lines = SplitLines(text);
+    std::stable_sort(lines.begin(), lines.end(),
+                     [](const std::wstring &a, const std::wstring &b) { return LineLessLocale(b, a); });
+    ReplaceTargetText(JoinWithCR(lines), wasSelection);
+}
+
+// Percent-encode the UTF-8 form of the text. Everything outside RFC 3986's
+// unreserved set (A-Z a-z 0-9 - _ . ~) becomes %XX, line breaks included.
+void ToolsUrlEncode()
+{
+    bool wasSelection = false;
+    std::wstring text = GetTargetText(&wasSelection);
+    if (text.empty())
+        return;
+    std::vector<BYTE> utf8 = WideToUtf8Bytes(text);
+    static const wchar_t kHex[] = L"0123456789ABCDEF";
+    std::wstring out;
+    out.reserve(utf8.size() * 3);
+    for (BYTE b : utf8)
+    {
+        if ((b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z') || (b >= '0' && b <= '9') ||
+            b == '-' || b == '_' || b == '.' || b == '~')
+            out.push_back(static_cast<wchar_t>(b));
+        else
+        {
+            out.push_back(L'%');
+            out.push_back(kHex[b >> 4]);
+            out.push_back(kHex[b & 0xF]);
+        }
+    }
+    ReplaceTargetText(out, wasSelection);
+}
+
+static int HexVal(wchar_t c)
+{
+    if (c >= L'0' && c <= L'9') return c - L'0';
+    if (c >= L'A' && c <= L'F') return c - L'A' + 10;
+    if (c >= L'a' && c <= L'f') return c - L'a' + 10;
+    return -1;
+}
+
+// Decode %XX sequences (bytes interpreted as UTF-8, mirroring the encoder).
+// A '%' not followed by two hex digits is kept literally; if the decoded
+// bytes are not valid UTF-8 the text is left untouched, like Base64 decode.
+void ToolsUrlDecode()
+{
+    bool wasSelection = false;
+    std::wstring text = GetTargetText(&wasSelection);
+    if (text.empty())
+        return;
+    std::vector<BYTE> bytes;
+    bytes.reserve(text.size());
+    for (size_t i = 0; i < text.size(); ++i)
+    {
+        wchar_t c = text[i];
+        int hi, lo;
+        if (c == L'%' && i + 2 < text.size() &&
+            (hi = HexVal(text[i + 1])) >= 0 && (lo = HexVal(text[i + 2])) >= 0)
+        {
+            bytes.push_back(static_cast<BYTE>((hi << 4) | lo));
+            i += 2;
+        }
+        else
+        {
+            // Pass the character through as its own UTF-8 bytes, so text
+            // that is only partially percent-encoded still decodes. A
+            // surrogate pair (emoji etc.) must be converted as one unit.
+            wchar_t unit[2] = {c, 0};
+            int units = 1;
+            if (c >= 0xD800 && c <= 0xDBFF && i + 1 < text.size() &&
+                text[i + 1] >= 0xDC00 && text[i + 1] <= 0xDFFF)
+            {
+                unit[1] = text[i + 1];
+                units = 2;
+                ++i;
+            }
+            char buf[8];
+            int n = WideCharToMultiByte(CP_UTF8, 0, unit, units, buf, sizeof(buf), nullptr, nullptr);
+            for (int k = 0; k < n; ++k)
+                bytes.push_back(static_cast<BYTE>(buf[k]));
+        }
+    }
+    if (bytes.empty())
+        return;
+    int len = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+                                  reinterpret_cast<const char *>(bytes.data()),
+                                  static_cast<int>(bytes.size()), nullptr, 0);
+    if (len <= 0)
+        return; // not valid UTF-8 — leave the document untouched
+    std::wstring decoded(len, L'\0');
+    MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+                        reinterpret_cast<const char *>(bytes.data()),
+                        static_cast<int>(bytes.size()), decoded.data(), len);
+    ReplaceTargetText(NormalizeCR(decoded), wasSelection);
+}
+
 // ---------- Top-level "Tools" menu visibility -----------------------------
 
 static HMENU g_hToolsMenuDetached = nullptr;

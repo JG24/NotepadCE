@@ -147,4 +147,20 @@ inline LangStrings g_langPL = {
     L"&Kodowanie",
     L"Otwórz &folder pliku",
     L"&Kopiuj ścieżkę pliku",
-    L"Base64 do &tekstu"};
+    L"Base64 do &tekstu",
+
+    L"Skrawki",
+    L"Utwórz &skrawek",
+    L"Utwórz &folder",
+    L"&Wstaw",
+    L"&Otwórz",
+    L"&Zmień nazwę",
+    L"&Usuń",
+    L"Usunąć ",
+    L"Nowy skrawek",
+    L"Nowy folder",
+
+    L"S&ortuj linie A→Z",
+    L"Sortuj linie Z→&A",
+    L"Tekst do U&RL",
+    L"URL do teks&tu"};

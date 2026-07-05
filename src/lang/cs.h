@@ -147,4 +147,20 @@ inline LangStrings g_langCS = {
     L"Kó&dování",
     L"Otevřít &složku souboru",
     L"&Kopírovat cestu k souboru",
-    L"Base64 na &text"};
+    L"Base64 na &text",
+
+    L"Útržky",
+    L"Nový &útržek",
+    L"Nová &složka",
+    L"&Vložit",
+    L"&Otevřít",
+    L"&Přejmenovat",
+    L"&Smazat",
+    L"Smazat ",
+    L"Nový útržek",
+    L"Nová složka",
+
+    L"Seřadit řádky A→Z",
+    L"Seřadit řádky Z→&A",
+    L"Text na U&RL",
+    L"URL na te&xt"};

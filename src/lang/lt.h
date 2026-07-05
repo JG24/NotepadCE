@@ -147,4 +147,20 @@ inline LangStrings g_langLT = {
     L"Koduo&tė",
     L"Atverti &aplanką su failu",
     L"&Kopijuoti failo kelią",
-    L"Base64 į &tekstą"};
+    L"Base64 į &tekstą",
+
+    L"Iškarpos",
+    L"Nauja &iškarpa",
+    L"Naujas &aplankas",
+    L"Į&terpti",
+    L"At&verti",
+    L"&Pervadinti",
+    L"Pa&šalinti",
+    L"Pašalinti ",
+    L"Nauja iškarpa",
+    L"Naujas aplankas",
+
+    L"Rikiuoti eilutes A→Ž",
+    L"Rikiuoti eilutes Ž→&A",
+    L"Tekstas į U&RL",
+    L"URL į tekstą"};

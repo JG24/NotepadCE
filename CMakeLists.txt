@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(NotepadCE VERSION 0.9.2 LANGUAGES CXX)
+project(NotepadCE VERSION 0.9.5 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -66,6 +66,7 @@ target_sources(NotepadCE PRIVATE
     src/modules/tools.cpp
     src/modules/gutter.cpp
     src/modules/quickicons.cpp
+    src/modules/snippets.cpp
     src/notepad.rc
 )
 

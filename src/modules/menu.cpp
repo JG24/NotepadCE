@@ -315,6 +315,10 @@ void UpdateMenuStrings()
             SetItemText(hToolsMenu, IDM_TOOLS_TRIMTRAILING, FALSE, lang.menuToolsTrimTrailing.c_str());
             SetItemText(hToolsMenu, IDM_TOOLS_TABS2SPACES, FALSE, lang.menuToolsTabsToSpaces.c_str());
             SetItemText(hToolsMenu, IDM_TOOLS_SPACES2TABS, FALSE, lang.menuToolsSpacesToTabs.c_str());
+            SetItemText(hToolsMenu, IDM_TOOLS_URLENCODE, FALSE, lang.menuToolsUrlEncode.c_str());
+            SetItemText(hToolsMenu, IDM_TOOLS_URLDECODE, FALSE, lang.menuToolsUrlDecode.c_str());
+            SetItemText(hToolsMenu, IDM_TOOLS_SORTASC, FALSE, lang.menuToolsSortAsc.c_str());
+            SetItemText(hToolsMenu, IDM_TOOLS_SORTDESC, FALSE, lang.menuToolsSortDesc.c_str());
             SetItemText(hToolsMenu, IDM_TOOLS_REVERSELINES, FALSE, lang.menuToolsReverseLines.c_str());
             SetItemText(hToolsMenu, IDM_TOOLS_JOINLINES, FALSE, lang.menuToolsJoinLines.c_str());
             SetItemText(hToolsMenu, IDM_TOOLS_REMOVEEMPTY, FALSE, lang.menuToolsRemoveEmpty.c_str());

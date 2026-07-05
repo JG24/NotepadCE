@@ -23,6 +23,7 @@
 #include "settings.h"
 #include "menu.h"
 #include "editor.h"
+#include "snippets.h"
 
 bool SetTitleBarDark(HWND hwnd, BOOL dark)
 {
@@ -252,6 +253,7 @@ void ApplyTheme()
     // WM_DRAWITEM paints them — Win11 stopped honouring the legacy UAH
     // path) and revert to regular system painting in light mode.
     EnableOwnerDrawMenuBar(g_hwndMain, dark);
+    ApplySnippetsTheme();
     InvalidateRect(g_hwndEditor, nullptr, TRUE);
     InvalidateRect(g_hwndStatus, nullptr, TRUE);
     InvalidateRect(g_hwndMain, nullptr, TRUE);

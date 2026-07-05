@@ -200,6 +200,26 @@ struct LangStrings
     LStr menuFileOpenFolder;
     LStr menuFileCopyPath;
     LStr menuToolsBase64Decode;
+
+    // Snippets side panel: quick-icon tooltip, context-menu entries,
+    // delete-confirmation prefix and default names for new entries.
+    LStr tipQuickSnippets;
+    LStr snipNewSnippet;
+    LStr snipNewFolder;
+    LStr snipInsert;
+    LStr snipOpen;
+    LStr snipRename;
+    LStr snipDelete;
+    LStr snipDeleteConfirm; // message: snipDeleteConfirm + name + "?"
+    LStr snipDefaultName;   // new snippet file name (without extension)
+    LStr snipDefaultFolder; // new folder name
+
+    // Tools added in 0.9.5: locale-aware line sorting and URL percent-
+    // encoding/decoding (the Base64 pair's sibling).
+    LStr menuToolsSortAsc;
+    LStr menuToolsSortDesc;
+    LStr menuToolsUrlEncode;
+    LStr menuToolsUrlDecode;
 };
 
 void InitLanguage();

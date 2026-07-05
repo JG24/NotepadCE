@@ -19,6 +19,7 @@
 #include "editor.h"
 #include "file.h"
 #include "gutter.h"
+#include "snippets.h"
 #include <commctrl.h>
 #include <shlwapi.h>
 #include <richedit.h>
@@ -151,11 +152,25 @@ void ResizeControls()
         }
     }
 
+    // Snippets panel docks to the right edge; the gap between it and the
+    // editor is the splitter drag zone (handled in the main WndProc).
+    int snipW = SnippetsLayoutWidth();
+    if (g_hwndSnippets)
+    {
+        if (snipW > 0)
+        {
+            ShowWindow(g_hwndSnippets, SW_SHOW);
+            MoveWindow(g_hwndSnippets, rc.right - pad - snipW, pad, snipW, areaH, TRUE);
+        }
+        else
+            ShowWindow(g_hwndSnippets, SW_HIDE);
+    }
+
     // Small visual gap between the gutter and the editor text — without
     // it the line number sits flush against the first character.
     const int gutterGap = (gutterW > 0) ? 2 : 0;
     int editorX = pad + gutterW + gutterGap;
-    int editorW = rc.right - editorX - pad;
+    int editorW = rc.right - editorX - pad - (snipW > 0 ? snipW + SNIPPETS_SPLITTER_W : 0);
     if (editorW < 0)
         editorW = 0;
     MoveWindow(g_hwndEditor, editorX, pad, editorW, areaH, TRUE);
