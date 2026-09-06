@@ -7,6 +7,7 @@
 #include "uk.h"
 #include "lt.h"
 #include "ru.h"
+#include "zh.h"
 #include "../modules/settings.h"
 #include <windows.h>
 
@@ -58,6 +59,9 @@ void SetLanguage(LangID lang)
         break;
     case LangID::RU:
         g_currentStrings = &g_langRU;
+        break;
+    case LangID::ZH:
+        g_currentStrings = &g_langZH;
         break;
     case LangID::EN:
     default:

@@ -13,11 +13,12 @@ enum class LangID
     CS,
     UK,
     LT,
-    RU
+    RU,
+    ZH
 };
 
 // Lightweight, non-owning, NUL-terminated wide-string handle. Holds only a
-// pointer to a string literal, so the eight LangStrings tables below become
+// pointer to a string literal, so the nine LangStrings tables below become
 // pure constant data — no per-field std::wstring construction at startup
 // (that was ~70 KB of init code across all languages). Exposes just the slice
 // of the std::wstring interface the call sites use: implicit const wchar_t*
