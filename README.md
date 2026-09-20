@@ -166,7 +166,7 @@ Every tool acts on the current selection, or on the whole document when nothing 
 
 - **Windows 8** or newer (`_WIN32_WINNT=0x0602`). Tested on **Windows 11**.
 - No runtime dependencies — everything is linked statically (GCC: `-static -static-libgcc -static-libstdc++`).
-- Single executable (~490 KB).
+- Single executable (~450 KB).
 
 ---
 
