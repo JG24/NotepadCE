@@ -384,7 +384,7 @@ static void DoLoad()
     }
 
     int langVal = obj.getInt("language", -1);
-    if (langVal >= 0 && langVal <= 7) // 0..7 = EN/JA/PL/DE/CS/UK/LT/RU
+    if (langVal >= 0 && langVal <= 8) // 0..8 = EN/JA/PL/DE/CS/UK/LT/RU/ZH
         SetLanguage(static_cast<LangID>(langVal));
 
     RECT rc = {g_state.windowX, g_state.windowY,

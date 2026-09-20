@@ -870,6 +870,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         case IDM_VIEW_LANG_RU:
             ChangeLanguage(LangID::RU);
             break;
+        case IDM_VIEW_LANG_ZH:
+            ChangeLanguage(LangID::ZH);
+            break;
         case IDM_HELP_ABOUT:
             HelpAbout();
             break;

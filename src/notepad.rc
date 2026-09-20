@@ -98,6 +98,7 @@ BEGIN
             MENUITEM "&Ukrainian", IDM_VIEW_LANG_UK
             MENUITEM "L&ithuanian", IDM_VIEW_LANG_LT
             MENUITEM "&Russian", IDM_VIEW_LANG_RU
+            MENUITEM "&Simplified Chinese", IDM_VIEW_LANG_ZH
         END
         MENUITEM SEPARATOR
         MENUITEM "Window &Transparency...", IDM_VIEW_TRANSPARENCY

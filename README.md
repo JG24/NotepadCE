@@ -252,7 +252,7 @@ src/
 │   └── globals.{h,cpp}      — global state, window handles
 ├── lang/
 │   ├── lang.{h,cpp}         — translation system
-│   └── *.h                  — one header per language (en, pl, ja, de, cs, uk, lt, ru)
+│   └── *.h                  — one header per language (en, pl, ja, de, cs, uk, lt, ru, zh)
 └── modules/
     ├── theme.{h,cpp}        — light / dark themes
     ├── editor.{h,cpp}       — RichEdit control, paste, duplicate, delete line
@@ -281,7 +281,7 @@ src/
 
 ## Multi-language support
 
-The interface is available in eight languages (switched live, without restart):
+The interface is available in nine languages (switched live, without restart):
 
 - 🇬🇧 **English**
 - 🇵🇱 **Polski**
@@ -291,6 +291,7 @@ The interface is available in eight languages (switched live, without restart):
 - 🇺🇦 **Українська**
 - 🇱🇹 **Lietuvių**
 - 🇷🇺 **Русский**
+- 🇨🇳 **简体中文**
 
 The language menu lists each language by its own name (autonym), so an entry stays recognisable whatever the current UI language is set to.
 

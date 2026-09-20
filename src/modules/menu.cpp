@@ -275,7 +275,7 @@ void UpdateMenuStrings()
         SetItemText(hViewMenu, IDM_VIEW_ALWAYSONTOP, FALSE, lang.menuAlwaysOnTop.c_str());
 
         // Language popup — no command ID, locate it by the ID of its
-        // first child. Order in the .rc: EN, PL, JA, DE, CS, UK, LT, RU.
+        // first child. Order in the .rc: EN, PL, JA, DE, CS, UK, LT, RU, ZH.
         int langIdx = FindNestedPopup(hViewMenu, IDM_VIEW_LANG_EN);
         if (langIdx >= 0)
         {
@@ -294,6 +294,7 @@ void UpdateMenuStrings()
                 SetItemText(hLangMenu, IDM_VIEW_LANG_UK, FALSE, L"Українська");
                 SetItemText(hLangMenu, IDM_VIEW_LANG_LT, FALSE, L"Lietuvių");
                 SetItemText(hLangMenu, IDM_VIEW_LANG_RU, FALSE, L"Русский");
+                SetItemText(hLangMenu, IDM_VIEW_LANG_ZH, FALSE, L"简体中文");
             }
         }
     }
@@ -372,12 +373,12 @@ void UpdateLanguageMenu()
     if (!hLangMenu)
         return;
 
-    // The eight language command IDs are contiguous (IDM_VIEW_LANG_EN ..
-    // IDM_VIEW_LANG_RU) and laid out in LangID enum order, so the active
+    // The nine language command IDs are contiguous (IDM_VIEW_LANG_EN ..
+    // IDM_VIEW_LANG_ZH) and laid out in LangID enum order, so the active
     // item's ID is simply base + enum value. CheckMenuRadioItem ticks it
     // and clears the rest of the group.
     UINT activeId = IDM_VIEW_LANG_EN + static_cast<UINT>(GetCurrentLanguage());
-    CheckMenuRadioItem(hLangMenu, IDM_VIEW_LANG_EN, IDM_VIEW_LANG_RU,
+    CheckMenuRadioItem(hLangMenu, IDM_VIEW_LANG_EN, IDM_VIEW_LANG_ZH,
                        activeId, MF_BYCOMMAND);
 }
 
