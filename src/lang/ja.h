@@ -163,4 +163,13 @@ inline LangStrings g_langJA = {
     L"行を並べ替え A→Z(&O)",
     L"行を並べ替え Z→A(&A)",
     L"テキスト → URL(&R)",
-    L"URL → テキスト(&X)"};
+    L"URL → テキスト(&X)",
+    L"行の前後の空白を削除(&L)",
+
+    L"Lorem Ipsum(&I)...",
+    L"Lorem Ipsum ジェネレーター",
+    L"段落数:",
+    L"1段落あたりの平均語数:",
+    L"「Lorem ipsum dolor sit amet」で開始する",
+    L"段落を <p> タグで囲む",
+    L"拡張検索モード(&E) (\\n, \\r, \\t)"};

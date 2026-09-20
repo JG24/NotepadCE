@@ -1,14 +1,4 @@
 /*
-   ▄████████  ▄██████▄     ▄████████  ▄█        ▄██████▄   ▄██████▄     ▄███████▄
-  ███    ███ ███    ███   ███    ███ ███       ███    ███ ███    ███   ███    ███
-  ███    █▀  ███    ███   ███    ███ ███       ███    ███ ███    ███   ███    ███
- ▄███▄▄▄     ███    ███  ▄███▄▄▄▄██▀ ███       ███    ███ ███    ███   ███    ███
-▀▀███▀▀▀     ███    ███ ▀▀███▀▀▀▀▀   ███       ███    ███ ███    ███ ▀█████████▀
-  ███        ███    ███ ▀███████████ ███       ███    ███ ███    ███   ███
-  ███        ███    ███   ███    ███ ███▌    ▄ ███    ███ ███    ███   ███
-  ███         ▀██████▀    ███    ███ █████▄▄██  ▀██████▀   ▀██████▀   ▄████▀
-                          ███    ███ ▀
-
   Editor control functions for text manipulation, font rendering, and zoom control.
   Handles RichEdit control subclassing, word wrap, and cursor position tracking.
 */
@@ -264,12 +254,27 @@ void ApplyWordWrap()
     std::wstring text = GetEditorText();
     DWORD start = 0, end = 0;
     SendMessageW(g_hwndEditor, EM_GETSEL, reinterpret_cast<WPARAM>(&start), reinterpret_cast<LPARAM>(&end));
-    DestroyWindow(g_hwndEditor);
-    DWORD style = WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_WANTRETURN | ES_NOHIDESEL;
+    // ES_DISABLENOSCROLL: keep the scrollbar in place and merely disable it
+    // when there is nothing to scroll, instead of removing it. Removal is what
+    // produced the frozen scrollbar mid-window — see the WM_SIZE handler.
+    DWORD style = WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_WANTRETURN | ES_NOHIDESEL | ES_DISABLENOSCROLL;
     if (!g_state.wordWrap)
         style |= WS_HSCROLL | ES_AUTOHSCROLL;
-    g_hwndEditor = CreateWindowExW(0, MSFTEDIT_CLASS, nullptr, style,
-                                   0, 0, 100, 100, g_hwndMain, reinterpret_cast<HMENU>(IDC_EDITOR), GetModuleHandleW(nullptr), nullptr);
+    // Build the replacement first — g_editorClass is whatever class WM_CREATE
+    // managed to register (msftedit, or the riched20 fallback). Destroying
+    // the old editor before knowing the new one exists would orphan the
+    // document on failure.
+    HWND newEditor = CreateWindowExW(0, g_editorClass, nullptr, style,
+                                     0, 0, 100, 100, g_hwndMain, reinterpret_cast<HMENU>(IDC_EDITOR), GetModuleHandleW(nullptr), nullptr);
+    if (!newEditor)
+    {
+        g_state.wordWrap = !g_state.wordWrap; // roll the toggle back
+        CheckMenuItem(GetMenu(g_hwndMain), IDM_FORMAT_WORDWRAP,
+                      g_state.wordWrap ? MF_CHECKED : MF_UNCHECKED);
+        return;
+    }
+    DestroyWindow(g_hwndEditor);
+    g_hwndEditor = newEditor;
     g_origEditorProc = reinterpret_cast<WNDPROC>(SetWindowLongPtrW(g_hwndEditor, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(EditorSubclassProc)));
     SendMessageW(g_hwndEditor, EM_EXLIMITTEXT, 0, static_cast<LPARAM>(-1));
     SendMessageW(g_hwndEditor, EM_SETEVENTMASK, 0, ENM_CHANGE | ENM_SELCHANGE);
@@ -284,31 +289,58 @@ void ApplyWordWrap()
     UpdateTitle();
 }
 
+static std::wstring GetEditorTextRange(HWND hwnd, int cpMin, int cpMax);
+
+// ---- Visual vs logical lines -----------------------------------------------
+// With word wrap on, EM_EXLINEFROMCHAR / EM_LINEINDEX / EM_LINELENGTH all
+// describe *visual* lines, so every line-based tool must first snap to the
+// enclosing logical (paragraph) boundaries or it cuts a wrapped paragraph
+// mid-flow. A visual line continues into the next one exactly when no '\r'
+// sits between them (EM_LINEINDEX(next) == start + length).
+
+static int LogicalLineStart(HWND hwnd, int pos)
+{
+    int line = static_cast<int>(SendMessageW(hwnd, EM_EXLINEFROMCHAR, 0, pos));
+    int start = static_cast<int>(SendMessageW(hwnd, EM_LINEINDEX, line, 0));
+    while (start > 0)
+    {
+        std::wstring prev = GetEditorTextRange(hwnd, start - 1, start);
+        if (!prev.empty() && prev[0] == L'\r')
+            break;
+        --line;
+        start = static_cast<int>(SendMessageW(hwnd, EM_LINEINDEX, line, 0));
+    }
+    return start;
+}
+
+static int LogicalLineEnd(HWND hwnd, int pos)
+{
+    int line = static_cast<int>(SendMessageW(hwnd, EM_EXLINEFROMCHAR, 0, pos));
+    for (;;)
+    {
+        int start = static_cast<int>(SendMessageW(hwnd, EM_LINEINDEX, line, 0));
+        int end = start + static_cast<int>(SendMessageW(hwnd, EM_LINELENGTH, start, 0));
+        int next = static_cast<int>(SendMessageW(hwnd, EM_LINEINDEX, line + 1, 0));
+        if (next < 0 || next > end)
+            return end; // last line, or a real '\r' follows
+        ++line; // soft wrap — the paragraph continues on the next visual line
+    }
+}
+
 static void IndentDedentLines(HWND hwnd, bool dedent)
 {
     DWORD selStart = 0, selEnd = 0;
     SendMessageW(hwnd, EM_GETSEL, reinterpret_cast<WPARAM>(&selStart), reinterpret_cast<LPARAM>(&selEnd));
     bool hasSelection = selStart != selEnd;
 
-    int firstLine = static_cast<int>(SendMessageW(hwnd, EM_EXLINEFROMCHAR, 0, selStart));
-    int lastLine = firstLine;
-    if (hasSelection)
-    {
-        int endLine = static_cast<int>(SendMessageW(hwnd, EM_EXLINEFROMCHAR, 0, selEnd));
-        int endLineStart = static_cast<int>(SendMessageW(hwnd, EM_LINEINDEX, endLine, 0));
-        // A selection that ends exactly at column 0 of the line after the
-        // intended one (the natural result of shift-down or triple-click)
-        // shouldn't pull that extra empty line into the indent block.
-        if (endLine > firstLine && static_cast<int>(selEnd) == endLineStart)
-            lastLine = endLine - 1;
-        else
-            lastLine = endLine;
-    }
-
-    int blockStart = static_cast<int>(SendMessageW(hwnd, EM_LINEINDEX, firstLine, 0));
-    int lastLineStart = static_cast<int>(SendMessageW(hwnd, EM_LINEINDEX, lastLine, 0));
-    int lastLineLen = static_cast<int>(SendMessageW(hwnd, EM_LINELENGTH, lastLineStart, 0));
-    int blockEnd = lastLineStart + lastLineLen;
+    int blockStart = LogicalLineStart(hwnd, static_cast<int>(selStart));
+    int endPos = static_cast<int>(selEnd);
+    // A selection that ends exactly at column 0 of the line after the
+    // intended one (the natural result of shift-down or triple-click)
+    // shouldn't pull that extra empty line into the indent block.
+    if (hasSelection && endPos > blockStart && endPos == LogicalLineStart(hwnd, endPos))
+        --endPos;
+    int blockEnd = LogicalLineEnd(hwnd, endPos);
     int blockLen = blockEnd - blockStart;
     if (blockLen < 0)
         blockLen = 0;
@@ -325,7 +357,8 @@ static void IndentDedentLines(HWND hwnd, bool dedent)
     std::wstring block(buf.data());
 
     std::wstring out;
-    out.reserve(block.size() + static_cast<size_t>(lastLine - firstLine + 1));
+    // Worst case (indent) grows by one tab per logical line in the block.
+    out.reserve(block.size() + std::count(block.begin(), block.end(), L'\r') + 1);
 
     // Walk each line in the block, applying indent or dedent. RichEdit
     // 2.0+ stores paragraph breaks as a single \r, so split on \r only.
@@ -405,28 +438,13 @@ static void MoveLines(HWND hwnd, bool down)
     SendMessageW(hwnd, EM_GETSEL, reinterpret_cast<WPARAM>(&selStart), reinterpret_cast<LPARAM>(&selEnd));
     bool hasSelection = selStart != selEnd;
 
-    int firstLine = static_cast<int>(SendMessageW(hwnd, EM_EXLINEFROMCHAR, 0, selStart));
-    int lastLine = firstLine;
-    if (hasSelection)
-    {
-        int endLine = static_cast<int>(SendMessageW(hwnd, EM_EXLINEFROMCHAR, 0, selEnd));
-        int endLineStart = static_cast<int>(SendMessageW(hwnd, EM_LINEINDEX, endLine, 0));
-        // A selection ending exactly at column 0 of the following line
-        // (shift-down's natural result) shouldn't drag that line along.
-        if (endLine > firstLine && static_cast<int>(selEnd) == endLineStart)
-            lastLine = endLine - 1;
-        else
-            lastLine = endLine;
-    }
-
-    int totalLines = static_cast<int>(SendMessageW(hwnd, EM_GETLINECOUNT, 0, 0));
-    if (down ? (lastLine >= totalLines - 1) : (firstLine <= 0))
-        return; // already at the edge
-
-    int blockStart = static_cast<int>(SendMessageW(hwnd, EM_LINEINDEX, firstLine, 0));
-    int lastLineStart = static_cast<int>(SendMessageW(hwnd, EM_LINEINDEX, lastLine, 0));
-    int lastLineLen = static_cast<int>(SendMessageW(hwnd, EM_LINELENGTH, lastLineStart, 0));
-    int blockEnd = lastLineStart + lastLineLen;
+    int blockStart = LogicalLineStart(hwnd, static_cast<int>(selStart));
+    int endPos = static_cast<int>(selEnd);
+    // A selection ending exactly at column 0 of the following line
+    // (shift-down's natural result) shouldn't drag that line along.
+    if (hasSelection && endPos > blockStart && endPos == LogicalLineStart(hwnd, endPos))
+        --endPos;
+    int blockEnd = LogicalLineEnd(hwnd, endPos);
 
     std::wstring blockText = GetEditorTextRange(hwnd, blockStart, blockEnd);
     int blockLen = static_cast<int>(blockText.size());
@@ -435,9 +453,13 @@ static void MoveLines(HWND hwnd, bool down)
     std::wstring combined;
     if (down)
     {
-        int nextStart = static_cast<int>(SendMessageW(hwnd, EM_LINEINDEX, lastLine + 1, 0));
-        int nextLen = static_cast<int>(SendMessageW(hwnd, EM_LINELENGTH, nextStart, 0));
-        int nextEnd = nextStart + nextLen;
+        // The char right after the block is its terminating '\r' — unless
+        // the block is already the last logical line of the document.
+        std::wstring sep = GetEditorTextRange(hwnd, blockEnd, blockEnd + 1);
+        if (sep.empty() || sep[0] != L'\r')
+            return; // already at the bottom
+        int nextStart = blockEnd + 1;
+        int nextEnd = LogicalLineEnd(hwnd, nextStart);
         std::wstring nextText = GetEditorTextRange(hwnd, nextStart, nextEnd);
         combined = nextText + L"\r" + blockText;
         repStart = blockStart;
@@ -446,9 +468,11 @@ static void MoveLines(HWND hwnd, bool down)
     }
     else
     {
-        int prevStart = static_cast<int>(SendMessageW(hwnd, EM_LINEINDEX, firstLine - 1, 0));
-        // The previous line's content ends one char before blockStart (the
-        // char at blockStart-1 is its terminating '\r').
+        if (blockStart <= 0)
+            return; // already at the top
+        // The char at blockStart-1 is the previous logical line's
+        // terminating '\r' (blockStart is a logical line start).
+        int prevStart = LogicalLineStart(hwnd, blockStart - 1);
         std::wstring prevText = GetEditorTextRange(hwnd, prevStart, blockStart - 1);
         combined = blockText + L"\r" + prevText;
         repStart = prevStart;
@@ -511,13 +535,26 @@ void DeleteWordBackward()
     }
     if (start == 0)
         return;
-    std::wstring text = GetEditorText();
-    size_t pos = start;
+    // Work on the current logical line only, fetched via EM_GETTEXTRANGE.
+    // GetEditorText() streams out CRLF line breaks, so its indices drift one
+    // char per line above the caret away from EM_GETSEL's CR-only positions
+    // — deleting a shifted range. Range text uses the same indexing as the
+    // selection, so the arithmetic below is exact.
+    int lineStart = LogicalLineStart(g_hwndEditor, static_cast<int>(start));
+    if (static_cast<int>(start) == lineStart)
+    {
+        // At the start of a line — remove just the preceding line break.
+        SendMessageW(g_hwndEditor, EM_SETSEL, start - 1, start);
+        SendMessageW(g_hwndEditor, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(L""));
+        return;
+    }
+    std::wstring text = GetEditorTextRange(g_hwndEditor, lineStart, static_cast<int>(start));
+    size_t pos = text.size();
     while (pos > 0 && iswspace(text[pos - 1]))
         --pos;
     while (pos > 0 && !iswspace(text[pos - 1]))
         --pos;
-    SendMessageW(g_hwndEditor, EM_SETSEL, pos, start);
+    SendMessageW(g_hwndEditor, EM_SETSEL, lineStart + static_cast<int>(pos), start);
     SendMessageW(g_hwndEditor, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(L""));
 }
 
@@ -530,14 +567,26 @@ void DeleteWordForward()
         SendMessageW(g_hwndEditor, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(L""));
         return;
     }
-    std::wstring text = GetEditorText();
+    // Same CR-only vs CRLF indexing rationale as DeleteWordBackward.
+    int lineEnd = LogicalLineEnd(g_hwndEditor, static_cast<int>(start));
+    if (static_cast<int>(start) >= lineEnd)
+    {
+        // At the end of a line — remove just the following line break.
+        std::wstring sep = GetEditorTextRange(g_hwndEditor, lineEnd, lineEnd + 1);
+        if (sep.empty() || sep[0] != L'\r')
+            return; // end of document
+        SendMessageW(g_hwndEditor, EM_SETSEL, start, start + 1);
+        SendMessageW(g_hwndEditor, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(L""));
+        return;
+    }
+    std::wstring text = GetEditorTextRange(g_hwndEditor, static_cast<int>(start), lineEnd);
     size_t len = text.size();
-    size_t pos = start;
+    size_t pos = 0;
     while (pos < len && !iswspace(text[pos]))
         ++pos;
     while (pos < len && iswspace(text[pos]))
         ++pos;
-    SendMessageW(g_hwndEditor, EM_SETSEL, start, pos);
+    SendMessageW(g_hwndEditor, EM_SETSEL, start, start + static_cast<DWORD>(pos));
     SendMessageW(g_hwndEditor, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(L""));
 }
 
@@ -547,26 +596,16 @@ void DuplicateLine()
     DWORD selStart = 0, selEnd = 0;
     SendMessageW(ed, EM_GETSEL, reinterpret_cast<WPARAM>(&selStart), reinterpret_cast<LPARAM>(&selEnd));
 
-    int line = static_cast<int>(SendMessageW(ed, EM_EXLINEFROMCHAR, 0, selStart));
-    int lineStart = static_cast<int>(SendMessageW(ed, EM_LINEINDEX, line, 0));
-    int lineLen = static_cast<int>(SendMessageW(ed, EM_LINELENGTH, lineStart, 0));
-
-    // EM_GETLINE wants the first WCHAR of the buffer to hold its capacity
-    // (in TCHARs). Allocate space for that plus the line content.
-    // Msftedit (modern RichEdit) sometimes copies the trailing \r into
-    // the buffer even though MSDN says otherwise — clamp to lineLen so
-    // we never carry a stray paragraph terminator into the duplicate.
-    std::vector<wchar_t> buf(static_cast<size_t>(lineLen) + 2, L'\0');
-    *reinterpret_cast<WORD *>(buf.data()) = static_cast<WORD>(buf.size());
-    int copied = static_cast<int>(SendMessageW(ed, EM_GETLINE, line, reinterpret_cast<LPARAM>(buf.data())));
-    if (copied > lineLen)
-        copied = lineLen;
-    std::wstring lineText(buf.data(), copied);
+    // Logical line boundaries (word-wrap safe), text via EM_GETTEXTRANGE —
+    // this also sidesteps EM_GETLINE's WORD-sized capacity field, which
+    // silently wrapped for lines past 64k chars.
+    int lineStart = LogicalLineStart(ed, static_cast<int>(selStart));
+    int lineEnd = LogicalLineEnd(ed, static_cast<int>(selStart));
+    std::wstring lineText = GetEditorTextRange(ed, lineStart, lineEnd);
 
     // RichEdit 2.0+ uses CR-only ('\r') as the paragraph break internally.
     // Inserting "\r\n" produces two breaks (one from \r, one from \n) and
     // a stray blank line. A single \r is the right separator here.
-    int lineEnd = lineStart + lineLen;
     LRESULT oldMask = SendMessageW(ed, EM_SETEVENTMASK, 0, 0);
     SendMessageW(ed, EM_SETSEL, lineEnd, lineEnd);
     std::wstring insert = L"\r" + lineText;
@@ -586,33 +625,26 @@ void DeleteLine()
     DWORD selStart = 0, selEnd = 0;
     SendMessageW(ed, EM_GETSEL, reinterpret_cast<WPARAM>(&selStart), reinterpret_cast<LPARAM>(&selEnd));
 
-    int line = static_cast<int>(SendMessageW(ed, EM_EXLINEFROMCHAR, 0, selStart));
-    int lineStart = static_cast<int>(SendMessageW(ed, EM_LINEINDEX, line, 0));
-    int totalLines = static_cast<int>(SendMessageW(ed, EM_GETLINECOUNT, 0, 0));
+    int lineStart = LogicalLineStart(ed, static_cast<int>(selStart));
+    int lineEnd = LogicalLineEnd(ed, static_cast<int>(selStart));
     int delStart = lineStart;
-    int delEnd;
+    int delEnd = lineEnd;
     int newCaret = lineStart;
 
-    if (line + 1 < totalLines)
+    std::wstring sep = GetEditorTextRange(ed, lineEnd, lineEnd + 1);
+    if (!sep.empty() && sep[0] == L'\r')
     {
         // Not the last line — also swallow the trailing newline.
-        delEnd = static_cast<int>(SendMessageW(ed, EM_LINEINDEX, line + 1, 0));
+        delEnd = lineEnd + 1;
     }
-    else if (line > 0)
+    else if (lineStart > 0)
     {
         // Last line of a multi-line buffer — eat the preceding newline so
         // we don't leave a dangling empty line.
-        int prevStart = static_cast<int>(SendMessageW(ed, EM_LINEINDEX, line - 1, 0));
-        int prevLen = static_cast<int>(SendMessageW(ed, EM_LINELENGTH, prevStart, 0));
-        delStart = prevStart + prevLen;
-        delEnd = static_cast<int>(SendMessageW(ed, WM_GETTEXTLENGTH, 0, 0));
+        delStart = lineStart - 1;
         newCaret = delStart;
     }
-    else
-    {
-        // The single line — just clear its content.
-        delEnd = static_cast<int>(SendMessageW(ed, WM_GETTEXTLENGTH, 0, 0));
-    }
+    // else: the single line — just clear its content.
 
     LRESULT oldMask = SendMessageW(ed, EM_SETEVENTMASK, 0, 0);
     SendMessageW(ed, EM_SETSEL, delStart, delEnd);
@@ -1234,13 +1266,13 @@ LRESULT CALLBACK EditorSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
     case WM_SIZE:
     {
         LRESULT result = CallWindowProcW(g_origEditorProc, hwnd, msg, wParam, lParam);
-        // RichEdit relays out and repaints on resize, but nothing guarantees
-        // the caret-line / match fills are redrawn (and the old surgical
-        // invalidation only runs on selection change). Force a clean repaint
-        // so the current-line highlight survives enlarging / maximizing the
-        // window instead of vanishing until the next caret move.
-        if (g_state.highlightCurrentLine || g_state.highlightOccurrences)
-            InvalidateRect(hwnd, nullptr, FALSE);
+        // A plain repaint (no erase — an erase on every resize step makes the
+        // text flash while a window edge is dragged). This exists for the
+        // caret-line / match overlays, whose surgical invalidation only runs
+        // on selection change; the frozen-scrollbar problem that used to need
+        // heavier handling here is now prevented at the source by
+        // ES_DISABLENOSCROLL, so the control never drops its scrollbar.
+        InvalidateRect(hwnd, nullptr, FALSE);
         return result;
     }
     case WM_LBUTTONUP:
@@ -1539,6 +1571,7 @@ LRESULT CALLBACK EditorSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             AppendMenuW(hTools, MF_STRING, IDM_TOOLS_LOWERCASE, lang.menuToolsLowercase.c_str());
             AppendMenuW(hTools, MF_STRING, IDM_TOOLS_TITLECASE, lang.menuToolsTitleCase.c_str());
             AppendMenuW(hTools, MF_STRING, IDM_TOOLS_TRIMTRAILING, lang.menuToolsTrimTrailing.c_str());
+            AppendMenuW(hTools, MF_STRING, IDM_TOOLS_TRIMLINES, lang.menuToolsTrimLines.c_str());
             AppendMenuW(hTools, MF_STRING, IDM_TOOLS_TABS2SPACES, lang.menuToolsTabsToSpaces.c_str());
             AppendMenuW(hTools, MF_STRING, IDM_TOOLS_SPACES2TABS, lang.menuToolsSpacesToTabs.c_str());
             AppendMenuW(hTools, MF_SEPARATOR, 0, nullptr);
@@ -1546,6 +1579,8 @@ LRESULT CALLBACK EditorSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             AppendMenuW(hTools, MF_STRING, IDM_TOOLS_JOINLINES, lang.menuToolsJoinLines.c_str());
             AppendMenuW(hTools, MF_STRING, IDM_TOOLS_REMOVEEMPTY, lang.menuToolsRemoveEmpty.c_str());
             AppendMenuW(hTools, MF_STRING, IDM_TOOLS_REMOVEDUPES, lang.menuToolsRemoveDupes.c_str());
+            AppendMenuW(hTools, MF_SEPARATOR, 0, nullptr);
+            AppendMenuW(hTools, MF_STRING, IDM_TOOLS_LOREM, lang.menuToolsLorem.c_str());
             AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
             AppendMenuW(hMenu, MF_POPUP, reinterpret_cast<UINT_PTR>(hTools), lang.menuTools.c_str());
         }

@@ -52,6 +52,7 @@ BEGIN
             MENUITEM "&Quick Access Icons", IDM_EDIT_SETTINGS_QUICKICONS
             MENUITEM "Highlight Current &Line", IDM_EDIT_SETTINGS_HIGHLIGHTLINE
             MENUITEM "Highlight &Matches", IDM_EDIT_SETTINGS_HIGHLIGHTWORD
+            MENUITEM "&Extended Find Mode (\\n, \\r, \\t)", IDM_EDIT_SETTINGS_EXTENDEDFIND
         END
     END
     POPUP "F&ormat"
@@ -118,6 +119,7 @@ BEGIN
         MENUITEM "&lowercase", IDM_TOOLS_LOWERCASE
         MENUITEM "&Title Case", IDM_TOOLS_TITLECASE
         MENUITEM "Trim Trailing &Whitespace", IDM_TOOLS_TRIMTRAILING
+        MENUITEM "Trim &Lines (Both Ends)", IDM_TOOLS_TRIMLINES
         MENUITEM "Tabs to &Spaces", IDM_TOOLS_TABS2SPACES
         MENUITEM "Spaces to Ta&bs", IDM_TOOLS_SPACES2TABS
         MENUITEM SEPARATOR
@@ -127,6 +129,8 @@ BEGIN
         MENUITEM "&Join Lines", IDM_TOOLS_JOINLINES
         MENUITEM "Remove &Empty Lines", IDM_TOOLS_REMOVEEMPTY
         MENUITEM "Remove &Duplicate Lines", IDM_TOOLS_REMOVEDUPES
+        MENUITEM SEPARATOR
+        MENUITEM "Lorem &Ipsum...", IDM_TOOLS_LOREM
     END
     POPUP "&Help"
     BEGIN

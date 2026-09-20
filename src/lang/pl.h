@@ -163,4 +163,13 @@ inline LangStrings g_langPL = {
     L"S&ortuj linie A→Z",
     L"Sortuj linie Z→&A",
     L"Tekst do U&RL",
-    L"URL do teks&tu"};
+    L"URL do teks&tu",
+    L"Przytnij &linie (obustronnie)",
+
+    L"Lorem &Ipsum...",
+    L"Generator Lorem ipsum",
+    L"Liczba akapitów:",
+    L"Średnia długość akapitu (słów):",
+    L"Zacznij od „Lorem ipsum dolor sit amet”",
+    L"Otocz akapity znacznikami <p>",
+    L"Tryb &rozszerzony szukania (\\n, \\r, \\t)"};

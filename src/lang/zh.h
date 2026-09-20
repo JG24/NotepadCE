@@ -163,4 +163,13 @@ inline LangStrings g_langZH = {
     L"按 A→Z&排序行(&O)",
     L"按 Z→&A 排序行(&A)",
     L"文本转 URL(&R)",
-    L"URL 转文本(&X)"};
+    L"URL 转文本(&X)",
+    L"修剪行首尾空白(&L)",
+
+    L"Lorem &Ipsum...",
+    L"Lorem Ipsum 生成器",
+    L"段落数量：",
+    L"平均段落长度（词数）：",
+    L"以 \"Lorem ipsum dolor sit amet\" 开头",
+    L"用 <p> 标签包裹段落",
+    L"扩展查找模式(&E)（\\n、\\r、\\t）"};

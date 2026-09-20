@@ -163,4 +163,13 @@ inline LangStrings g_langLT = {
     L"Rikiuoti eilutes A→Ž",
     L"Rikiuoti eilutes Ž→&A",
     L"Tekstas į U&RL",
-    L"URL į tekstą"};
+    L"URL į tekstą",
+    L"Apkarpyti ei&lutes (abipus)",
+
+    L"Lorem &Ipsum...",
+    L"Lorem Ipsum generatorius",
+    L"Pastraipų skaičius:",
+    L"Vidutinis pastraipos ilgis (žodžiais):",
+    L"Pradėti nuo „Lorem ipsum dolor sit amet“",
+    L"Apgaubti pastraipas <p> žymomis",
+    L"Išplėstinis paieškos režimas (\\n, \\r, \\t)"};

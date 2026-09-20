@@ -1,14 +1,4 @@
 /*
-   ▄████████  ▄██████▄     ▄████████  ▄█        ▄██████▄   ▄██████▄     ▄███████▄
-  ███    ███ ███    ███   ███    ███ ███       ███    ███ ███    ███   ███    ███
-  ███    █▀  ███    ███   ███    ███ ███       ███    ███ ███    ███   ███    ███
- ▄███▄▄▄     ███    ███  ▄███▄▄▄▄██▀ ███       ███    ███ ███    ███   ███    ███
-▀▀███▀▀▀     ███    ███ ▀▀███▀▀▀▀▀   ███       ███    ███ ███    ███ ▀█████████▀
-  ███        ███    ███ ▀███████████ ███       ███    ███ ███    ███   ███
-  ███        ███    ███   ███    ███ ███▌    ▄ ███    ███ ███    ███   ███
-  ███         ▀██████▀    ███    ███ █████▄▄██  ▀██████▀   ▀██████▀   ▄████▀
-                          ███    ███ ▀
-
   Dialog box implementations for find, replace, goto, font selection, and more.
   Provides modeless and modal dialog creation with proper event handling.
 */
@@ -19,6 +9,7 @@
 #include "ui.h"
 #include "theme.h"
 #include "settings.h"
+#include "tools.h"
 #include "resource.h"
 #include "lang/lang.h"
 #include "build_info.h"
@@ -28,6 +19,8 @@
 #include <uxtheme.h>
 #include <algorithm>
 #include <cwctype>
+#include <cstdarg>
+#include <vector>
 #include <ctime>
 
 static HWND g_transparencySlider = nullptr;
@@ -294,16 +287,152 @@ static FINDREPLACEW g_findReplace = {};
 static wchar_t g_findBuffer[256] = {};
 static wchar_t g_replaceBuffer[256] = {};
 
+// ---- Extended search mode (\n, \r, \t, \\) --------------------------------
+
+// The toggle lives in Edit > Settings, alongside the other editor options, so
+// it stands on its own — tying it to the Tools menu would mean a visible,
+// tickable setting that silently does nothing while Tools are off.
+static bool ExtendedActive()
+{
+    return g_state.findExtended;
+}
+
+// RichEdit stores a paragraph break as a lone CR, so \n, \r and a typed
+// "\r\n" pair all expand to a SINGLE CR — emitting "\r\n" would insert two
+// breaks (the same trap that used to double lines in Normalize Text).
+// Unrecognised escapes are left exactly as typed, so Windows paths keep
+// working without forcing the user to double every backslash.
+static std::wstring ExpandEscapes(const std::wstring &s)
+{
+    std::wstring out;
+    out.reserve(s.size());
+    for (size_t i = 0; i < s.size(); ++i)
+    {
+        if (s[i] != L'\\' || i + 1 >= s.size())
+        {
+            out += s[i];
+            continue;
+        }
+        switch (s[i + 1])
+        {
+        case L'r':
+            if (i + 3 < s.size() && s[i + 2] == L'\\' && s[i + 3] == L'n')
+            {
+                out += L'\r'; // "\r\n" is one break
+                i += 3;
+                break;
+            }
+            out += L'\r';
+            ++i;
+            break;
+        case L'n':
+            out += L'\r';
+            ++i;
+            break;
+        case L't':
+            out += L'\t';
+            ++i;
+            break;
+        case L'\\':
+            out += L'\\';
+            ++i;
+            break;
+        default:
+            out += s[i]; // unknown escape — keep the backslash literal
+            break;
+        }
+    }
+    return out;
+}
+
+static std::wstring FindPattern()
+{
+    return ExtendedActive() ? ExpandEscapes(g_state.findText) : g_state.findText;
+}
+
+// RichEdit's own search cannot match a paragraph mark: EM_FINDTEXTEXW returns
+// a ZERO-LENGTH hit for a lone CR, which made Replace All spin forever
+// (replace nothing, advance nothing) and hung the whole app — reproduced and
+// measured before this existed. Whenever the pattern contains a CR we search
+// the document ourselves instead.
+static bool PatternHasCR(const std::wstring &s)
+{
+    return s.find(L'\r') != std::wstring::npos;
+}
+
+// The document exactly as RichEdit stores it (CR-only breaks), so offsets line
+// up 1:1 with EM_SETSEL.
+static std::wstring EditorTextCR()
+{
+    LONG len = static_cast<LONG>(SendMessageW(g_hwndEditor, WM_GETTEXTLENGTH, 0, 0));
+    if (len <= 0)
+        return {};
+    std::vector<wchar_t> buf(static_cast<size_t>(len) + 1, L'\0');
+    TEXTRANGEW tr;
+    tr.chrg.cpMin = 0;
+    tr.chrg.cpMax = len;
+    tr.lpstrText = buf.data();
+    SendMessageW(g_hwndEditor, EM_GETTEXTRANGE, 0, reinterpret_cast<LPARAM>(&tr));
+    return std::wstring(buf.data());
+}
+
+static std::wstring LowerCopy(const std::wstring &s)
+{
+    std::wstring out = s;
+    std::transform(out.begin(), out.end(), out.begin(), towlower);
+    return out;
+}
+
+static std::wstring ReplaceValue()
+{
+    return ExtendedActive() ? ExpandEscapes(g_state.replaceText) : g_state.replaceText;
+}
+
 void DoFind(bool forward, bool matchCase)
 {
-    if (g_state.findText.empty())
+    std::wstring pattern = FindPattern();
+    if (pattern.empty())
         return;
 
     DWORD start = 0, end = 0;
     SendMessageW(g_hwndEditor, EM_GETSEL, reinterpret_cast<WPARAM>(&start), reinterpret_cast<LPARAM>(&end));
 
+    if (PatternHasCR(pattern))
+    {
+        std::wstring doc = EditorTextCR();
+        std::wstring hay = matchCase ? doc : LowerCopy(doc);
+        std::wstring needle = matchCase ? pattern : LowerCopy(pattern);
+        size_t pos = std::wstring::npos;
+        if (forward)
+        {
+            pos = hay.find(needle, end);
+            if (pos == std::wstring::npos)
+                pos = hay.find(needle, 0); // wrap around, like the normal path
+        }
+        else
+        {
+            if (start > 0)
+                pos = hay.rfind(needle, static_cast<size_t>(start) - 1);
+            if (pos == std::wstring::npos)
+                pos = hay.rfind(needle);
+        }
+        if (pos != std::wstring::npos)
+        {
+            SendMessageW(g_hwndEditor, EM_SETSEL, static_cast<WPARAM>(pos),
+                         static_cast<LPARAM>(pos + needle.size()));
+            SendMessageW(g_hwndEditor, EM_SCROLLCARET, 0, 0);
+        }
+        else
+        {
+            const auto &lang = GetLangStrings();
+            MessageBoxW(g_hwndMain, (lang.msgCannotFind + g_state.findText + L"\"").c_str(),
+                        lang.appName.c_str(), MB_ICONINFORMATION);
+        }
+        return;
+    }
+
     FINDTEXTEXW ft = {};
-    ft.lpstrText = const_cast<LPWSTR>(g_state.findText.c_str());
+    ft.lpstrText = const_cast<LPWSTR>(pattern.c_str());
     WPARAM flags = matchCase ? FR_MATCHCASE : 0;
     if (forward)
         flags |= FR_DOWN;
@@ -434,7 +563,9 @@ void HandleFindReplaceMessage(LPFINDREPLACEW pfr)
     }
     else if (pfr->Flags & FR_REPLACE)
     {
-        if (g_state.findText.empty())
+        std::wstring pattern = FindPattern();
+        std::wstring repl = ReplaceValue();
+        if (pattern.empty())
             return;
         DWORD selStart = 0, selEnd = 0;
         SendMessageW(g_hwndEditor, EM_GETSEL, reinterpret_cast<WPARAM>(&selStart), reinterpret_cast<LPARAM>(&selEnd));
@@ -443,21 +574,59 @@ void HandleFindReplaceMessage(LPFINDREPLACEW pfr)
             std::wstring sel(selEnd - selStart + 1, L'\0');
             SendMessageW(g_hwndEditor, EM_GETSELTEXT, 0, reinterpret_cast<LPARAM>(sel.data()));
             sel.resize(wcslen(sel.c_str()));
-            std::wstring findCmp = g_state.findText;
+            std::wstring findCmp = pattern;
             if (!matchCase)
             {
                 std::transform(sel.begin(), sel.end(), sel.begin(), towlower);
                 std::transform(findCmp.begin(), findCmp.end(), findCmp.begin(), towlower);
             }
             if (sel == findCmp)
-                SendMessageW(g_hwndEditor, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(g_state.replaceText.c_str()));
+                SendMessageW(g_hwndEditor, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(repl.c_str()));
         }
         DoFind(forward, matchCase);
     }
     else if (pfr->Flags & FR_REPLACEALL)
     {
-        if (g_state.findText.empty())
+        std::wstring pattern = FindPattern();
+        std::wstring repl = ReplaceValue();
+        if (pattern.empty())
             return;
+
+        // Patterns containing a paragraph mark can't go through
+        // EM_FINDTEXTEXW (see PatternHasCR) — rebuild the document instead.
+        // One EM_REPLACESEL also means one undo step for the whole operation.
+        if (PatternHasCR(pattern))
+        {
+            std::wstring doc = EditorTextCR();
+            std::wstring hay = matchCase ? doc : LowerCopy(doc);
+            std::wstring needle = matchCase ? pattern : LowerCopy(pattern);
+            std::wstring out;
+            out.reserve(doc.size());
+            size_t i = 0;
+            int done = 0;
+            while (true)
+            {
+                size_t pos = hay.find(needle, i);
+                if (pos == std::wstring::npos)
+                {
+                    out.append(doc, i, std::wstring::npos);
+                    break;
+                }
+                out.append(doc, i, pos - i); // indices match: hay is same length
+                out += repl;
+                i = pos + needle.size();
+                ++done;
+            }
+            if (done > 0)
+            {
+                SendMessageW(g_hwndEditor, EM_SETSEL, 0, -1);
+                SendMessageW(g_hwndEditor, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(out.c_str()));
+                g_state.modified = true;
+                UpdateTitle();
+            }
+            return;
+        }
+
         WPARAM flags = (matchCase ? FR_MATCHCASE : 0) | FR_DOWN;
         SendMessageW(g_hwndEditor, EM_SETSEL, 0, 0);
         LONG start = 0;
@@ -468,13 +637,17 @@ void HandleFindReplaceMessage(LPFINDREPLACEW pfr)
             FINDTEXTEXW ft = {};
             ft.chrg.cpMin = start;
             ft.chrg.cpMax = -1;
-            ft.lpstrText = const_cast<LPWSTR>(g_state.findText.c_str());
+            ft.lpstrText = const_cast<LPWSTR>(pattern.c_str());
             LRESULT pos = SendMessageW(g_hwndEditor, EM_FINDTEXTEXW, flags, reinterpret_cast<LPARAM>(&ft));
             if (pos == -1)
                 break;
+            // A zero-length hit would replace nothing and advance nothing —
+            // an infinite loop that freezes the app. Refuse to spin.
+            if (ft.chrgText.cpMax <= ft.chrgText.cpMin)
+                break;
             SendMessageW(g_hwndEditor, EM_SETSEL, ft.chrgText.cpMin, ft.chrgText.cpMax);
-            SendMessageW(g_hwndEditor, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(g_state.replaceText.c_str()));
-            start = ft.chrgText.cpMin + static_cast<LONG>(g_state.replaceText.length());
+            SendMessageW(g_hwndEditor, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(repl.c_str()));
+            start = ft.chrgText.cpMin + static_cast<LONG>(repl.length());
             ++replaced;
         }
         SendMessageW(g_hwndEditor, EM_HIDESELECTION, FALSE, 0);
@@ -546,12 +719,24 @@ INT_PTR CALLBACK GotoDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_CLOSE:
         DestroyWindow(hDlg);
         return TRUE;
+    case WM_DESTROY:
+        g_hwndGotoDlg = nullptr;
+        break;
     }
     return DefDlgProcW(hDlg, msg, wParam, lParam);
 }
 
 void EditGoto()
 {
+    // Single instance, same as Find/Transparency/DateFormat. The stored
+    // handle also puts the dialog into the IsDialogMessageW chain in
+    // wWinMain — without that, Tab/Enter/Esc are dead and main-window
+    // accelerators (Ctrl+V/Z/E...) fire into the document while typing here.
+    if (g_hwndGotoDlg)
+    {
+        SetForegroundWindow(g_hwndGotoDlg);
+        return;
+    }
     const auto &lang = GetLangStrings();
     const int W = 300, H = 150;
     const int PAD = 20;
@@ -589,6 +774,7 @@ void EditGoto()
     ApplyDialogFont(hDlg);
 
     SetWindowLongPtrW(hDlg, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(GotoDlgProc));
+    g_hwndGotoDlg = hDlg;
     ApplyDialogDarkMode(hDlg);
     CenterDialogOnParent(hDlg, g_hwndMain);
     SetFocus(hEdit);
@@ -951,6 +1137,165 @@ static LRESULT CALLBACK DateFormatDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LP
         return 0;
     }
     return DefWindowProcW(hDlg, msg, wParam, lParam);
+}
+
+// ---- Lorem ipsum generator -------------------------------------------------
+
+// Remembered for the session so repeat inserts don't mean retyping. Not
+// persisted to the config — these are per-task choices, not preferences.
+static int g_loremParagraphs = 5;
+static int g_loremWords = 75;
+static bool g_loremStartWith = false;
+static bool g_loremHtml = false;
+
+static HWND g_loremParaEdit = nullptr;
+static HWND g_loremWordsEdit = nullptr;
+static HWND g_loremStartChk = nullptr;
+static HWND g_loremHtmlChk = nullptr;
+
+static int ReadClampedInt(HWND edit, int lo, int hi, int fallback)
+{
+    wchar_t buf[16] = {};
+    GetWindowTextW(edit, buf, 16);
+    if (buf[0] == L'\0')
+        return fallback;
+    int v = _wtoi(buf);
+    if (v < lo)
+        v = lo;
+    if (v > hi)
+        v = hi;
+    return v;
+}
+
+static LRESULT CALLBACK LoremDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    switch (msg)
+    {
+    case WM_ERASEBKGND:
+    {
+        LRESULT r = EraseDialogBg(hDlg, wParam);
+        if (r)
+            return r;
+        break;
+    }
+    case WM_COMMAND:
+        if (LOWORD(wParam) == IDOK)
+        {
+            g_loremParagraphs = ReadClampedInt(g_loremParaEdit, 1, 500, 5);
+            g_loremWords = ReadClampedInt(g_loremWordsEdit, 5, 500, 75);
+            g_loremStartWith = SendMessageW(g_loremStartChk, BM_GETCHECK, 0, 0) == BST_CHECKED;
+            g_loremHtml = SendMessageW(g_loremHtmlChk, BM_GETCHECK, 0, 0) == BST_CHECKED;
+            DestroyWindow(hDlg); // close first: the insert scrolls the editor
+            ToolsInsertLorem(g_loremParagraphs, g_loremWords, g_loremStartWith, g_loremHtml);
+            return 0;
+        }
+        if (LOWORD(wParam) == IDCANCEL)
+        {
+            DestroyWindow(hDlg);
+            return 0;
+        }
+        break;
+    case WM_CTLCOLOREDIT:
+    case WM_CTLCOLORSTATIC:
+    case WM_CTLCOLORBTN:
+    case WM_CTLCOLORDLG:
+    {
+        INT_PTR r = HandleDialogDarkColors(msg, wParam);
+        if (r)
+            return static_cast<LRESULT>(r);
+        break;
+    }
+    case WM_DRAWITEM:
+        if (DrawDarkDialogButton(reinterpret_cast<const DRAWITEMSTRUCT *>(lParam)))
+            return TRUE;
+        break;
+    case WM_CLOSE:
+        DestroyWindow(hDlg);
+        return 0;
+    case WM_DESTROY:
+        g_loremParaEdit = nullptr;
+        g_loremWordsEdit = nullptr;
+        g_loremStartChk = nullptr;
+        g_loremHtmlChk = nullptr;
+        g_hwndLoremDlg = nullptr;
+        return 0;
+    }
+    return DefWindowProcW(hDlg, msg, wParam, lParam);
+}
+
+void ToolsLoremIpsum()
+{
+    if (g_hwndLoremDlg)
+    {
+        SetForegroundWindow(g_hwndLoremDlg);
+        return;
+    }
+    const auto &lang = GetLangStrings();
+
+    const int W = 430, H = 220;
+    const int PAD = 20;
+    const int LBL_W = 250;
+    const int ROW_H = 24;
+    HWND hDlg = CreateAppDialog(lang.loremTitle.c_str(), W, H);
+    if (!hDlg)
+        return;
+
+    int y = PAD;
+    const int editW = 70;
+    const int editX = W - PAD - editW;
+    wchar_t num[16];
+
+    CreateWindowExW(0, L"STATIC", lang.loremParagraphs.c_str(),
+                    WS_CHILD | WS_VISIBLE | SS_CENTERIMAGE,
+                    PAD, y, LBL_W, ROW_H, hDlg, nullptr, nullptr, nullptr);
+    wsprintfW(num, L"%d", g_loremParagraphs);
+    g_loremParaEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", num,
+                                      WS_CHILD | WS_VISIBLE | ES_NUMBER | ES_AUTOHSCROLL | WS_TABSTOP,
+                                      editX, y, editW, ROW_H,
+                                      hDlg, reinterpret_cast<HMENU>(1001), nullptr, nullptr);
+
+    y += ROW_H + 10;
+    CreateWindowExW(0, L"STATIC", lang.loremWords.c_str(),
+                    WS_CHILD | WS_VISIBLE | SS_CENTERIMAGE,
+                    PAD, y, LBL_W, ROW_H, hDlg, nullptr, nullptr, nullptr);
+    wsprintfW(num, L"%d", g_loremWords);
+    g_loremWordsEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", num,
+                                       WS_CHILD | WS_VISIBLE | ES_NUMBER | ES_AUTOHSCROLL | WS_TABSTOP,
+                                       editX, y, editW, ROW_H,
+                                       hDlg, reinterpret_cast<HMENU>(1002), nullptr, nullptr);
+
+    y += ROW_H + 14;
+    g_loremStartChk = CreateWindowExW(0, L"BUTTON", lang.loremStartWith.c_str(),
+                                      WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX | WS_TABSTOP,
+                                      PAD, y, W - PAD * 2, ROW_H,
+                                      hDlg, reinterpret_cast<HMENU>(1003), nullptr, nullptr);
+    SendMessageW(g_loremStartChk, BM_SETCHECK, g_loremStartWith ? BST_CHECKED : BST_UNCHECKED, 0);
+
+    y += ROW_H + 4;
+    g_loremHtmlChk = CreateWindowExW(0, L"BUTTON", lang.loremHtml.c_str(),
+                                     WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX | WS_TABSTOP,
+                                     PAD, y, W - PAD * 2, ROW_H,
+                                     hDlg, reinterpret_cast<HMENU>(1004), nullptr, nullptr);
+    SendMessageW(g_loremHtmlChk, BM_SETCHECK, g_loremHtml ? BST_CHECKED : BST_UNCHECKED, 0);
+
+    const int btnW = 88, btnH = 28;
+    const int btnY = H - PAD - btnH;
+    CreateWindowExW(0, L"BUTTON", lang.dialogOK.c_str(),
+                    WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON | WS_TABSTOP,
+                    W - PAD - btnW * 2 - 8, btnY, btnW, btnH,
+                    hDlg, reinterpret_cast<HMENU>(IDOK), nullptr, nullptr);
+    CreateWindowExW(0, L"BUTTON", lang.dialogCancel.c_str(),
+                    WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+                    W - PAD - btnW, btnY, btnW, btnH,
+                    hDlg, reinterpret_cast<HMENU>(IDCANCEL), nullptr, nullptr);
+
+    ApplyDialogFont(hDlg);
+    g_hwndLoremDlg = hDlg;
+    SetWindowLongPtrW(hDlg, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(LoremDlgProc));
+    ApplyDialogDarkMode(hDlg);
+    CenterDialogOnParent(hDlg, g_hwndMain);
+    SetFocus(g_loremParaEdit);
+    SendMessageW(g_loremParaEdit, EM_SETSEL, 0, -1);
 }
 
 void EditSettingsDateFormat()

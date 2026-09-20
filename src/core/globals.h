@@ -1,14 +1,4 @@
 /*
-   ▄████████  ▄██████▄     ▄████████  ▄█        ▄██████▄   ▄██████▄     ▄███████▄
-  ███    ███ ███    ███   ███    ███ ███       ███    ███ ███    ███   ███    ███
-  ███    █▀  ███    ███   ███    ███ ███       ███    ███ ███    ███   ███    ███
- ▄███▄▄▄     ███    ███  ▄███▄▄▄▄██▀ ███       ███    ███ ███    ███   ███    ███
-▀▀███▀▀▀     ███    ███ ▀▀███▀▀▀▀▀   ███       ███    ███ ███    ███ ▀█████████▀
-  ███        ███    ███ ▀███████████ ███       ███    ███ ███    ███   ███
-  ███        ███    ███   ███    ███ ███▌    ▄ ███    ███ ███    ███   ███
-  ███         ▀██████▀    ███    ███ █████▄▄██  ▀██████▀   ▀██████▀   ▄████▀
-                          ███    ███ ▀
-
   Global variable declarations shared across all application modules for window handles.
   Contains handles for main window, editor, status bar, dialogs, and GDI resources.
 */
@@ -28,6 +18,11 @@ extern HWND g_hwndFindDlg;
 extern HWND g_hwndTransparencyDlg;
 extern HWND g_hwndDateFormatDlg;
 extern HWND g_hwndAboutDlg;
+extern HWND g_hwndGotoDlg;
+extern HWND g_hwndLoremDlg;
+// RichEdit window class chosen in WM_CREATE (msftedit, or the riched20
+// fallback) — ApplyWordWrap recreates the editor with the same class.
+extern const wchar_t *g_editorClass;
 extern HACCEL g_hAccel;
 extern AppState g_state;
 extern WNDPROC g_origEditorProc;

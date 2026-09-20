@@ -163,4 +163,13 @@ inline LangStrings g_langCS = {
     L"Seřadit řádky A→Z",
     L"Seřadit řádky Z→&A",
     L"Text na U&RL",
-    L"URL na te&xt"};
+    L"URL na te&xt",
+    L"Oříznout řá&dky (oboustranně)",
+
+    L"Lorem &Ipsum...",
+    L"Generátor Lorem Ipsum",
+    L"Počet odstavců:",
+    L"Průměrná délka odstavce (slova):",
+    L"Začít slovy „Lorem ipsum dolor sit amet“",
+    L"Obalit odstavce značkami <p>",
+    L"&Rozšířený režim hledání (\\n, \\r, \\t)"};

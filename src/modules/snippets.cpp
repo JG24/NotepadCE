@@ -258,6 +258,7 @@ void RefreshSnippetTree()
         return;
     SendMessageW(g_hwndSnippets, WM_SETREDRAW, FALSE, 0);
     g_restoringTree = true;
+    g_dragItem = nullptr; // every HTREEITEM is about to be freed
     TreeView_DeleteAllItems(g_hwndSnippets); // payloads freed via TVN_DELETEITEM
     std::wstring root = SnippetsRoot();
     CreateDirectoryW(root.c_str(), nullptr); // no-op when it already exists
@@ -401,6 +402,10 @@ static void DeleteSnippet(HTREEITEM item, SnippetItem *data)
     tvi.pszText = label;
     tvi.cchTextMax = 259;
     TreeView_GetItem(g_hwndSnippets, &tvi);
+    // Snapshot the path BEFORE the MessageBox: its modal loop pumps posted
+    // messages, and a pending WM_SNIPPETS_REFRESH rebuilds the tree, freeing
+    // `data` and `item` behind our back. Neither may be touched after this.
+    std::wstring from = data->path;
     std::wstring msg = lang.snipDeleteConfirm + std::wstring(label) + L"?";
     if (MessageBoxW(g_hwndMain, msg.c_str(), lang.appName.c_str(),
                     MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) != IDYES)
@@ -408,7 +413,6 @@ static void DeleteSnippet(HTREEITEM item, SnippetItem *data)
     // Recycle bin, not a hard delete — this is the only place in the app
     // that destroys user data, so keep it recoverable. SHFileOperation also
     // handles non-empty folders. pFrom must be double-NUL-terminated.
-    std::wstring from = data->path;
     from.push_back(L'\0');
     SHFILEOPSTRUCTW op{};
     op.hwnd = g_hwndMain;
@@ -423,6 +427,14 @@ static void ShowContextMenu(HTREEITEM item, POINT ptScreen)
 {
     const auto &lang = GetLangStrings();
     SnippetItem *data = GetItemData(item);
+    // Snapshot the payload NOW: TrackPopupMenu (and the modal loops inside
+    // the command handlers below) pump posted messages, so a pending
+    // WM_SNIPPETS_REFRESH can rebuild the tree mid-flight, freeing every
+    // SnippetItem and HTREEITEM. After the menu returns, `data`/`item` must
+    // never be dereferenced — work from these copies and re-resolve by path.
+    const bool haveItem = data != nullptr;
+    const bool isFolder = data && data->isFolder;
+    const std::wstring itemPath = data ? data->path : std::wstring();
     enum
     {
         CMD_INSERT = 1,
@@ -435,7 +447,7 @@ static void ShowContextMenu(HTREEITEM item, POINT ptScreen)
     HMENU pop = CreatePopupMenu();
     if (!pop)
         return;
-    if (data && !data->isFolder)
+    if (haveItem && !isFolder)
     {
         AppendMenuW(pop, MF_STRING, CMD_INSERT, lang.snipInsert.c_str());
         AppendMenuW(pop, MF_STRING, CMD_OPEN, lang.snipOpen.c_str());
@@ -447,7 +459,7 @@ static void ShowContextMenu(HTREEITEM item, POINT ptScreen)
     {
         AppendMenuW(pop, MF_STRING, CMD_NEWSNIP, lang.snipNewSnippet.c_str());
         AppendMenuW(pop, MF_STRING, CMD_NEWFOLDER, lang.snipNewFolder.c_str());
-        if (data)
+        if (haveItem)
         {
             AppendMenuW(pop, MF_SEPARATOR, 0, nullptr);
             AppendMenuW(pop, MF_STRING, CMD_RENAME, lang.snipRename.c_str());
@@ -465,20 +477,20 @@ static void ShowContextMenu(HTREEITEM item, POINT ptScreen)
     // New entries land in the clicked folder, next to the clicked snippet,
     // or at the root when the click hit empty space.
     std::wstring dir;
-    if (data)
-        dir = data->isFolder ? data->path : data->path.substr(0, data->path.find_last_of(L'\\'));
+    if (haveItem)
+        dir = isFolder ? itemPath : itemPath.substr(0, itemPath.find_last_of(L'\\'));
     else
         dir = SnippetsRoot();
 
     switch (cmd)
     {
     case CMD_INSERT:
-        if (data)
-            InsertSnippetIntoEditor(data->path);
+        if (haveItem)
+            InsertSnippetIntoEditor(itemPath);
         break;
     case CMD_OPEN:
-        if (data && ConfirmDiscard())
-            LoadFile(data->path);
+        if (haveItem && ConfirmDiscard())
+            LoadFile(itemPath);
         break;
     case CMD_NEWSNIP:
     {
@@ -504,15 +516,19 @@ static void ShowContextMenu(HTREEITEM item, POINT ptScreen)
         break;
     }
     case CMD_RENAME:
-        if (item)
-        {
-            SetFocus(g_hwndSnippets);
-            TreeView_EditLabel(g_hwndSnippets, item);
-        }
+        // Re-resolve by path — `item` may have been freed by a refresh
+        // pumped inside TrackPopupMenu. SelectAndEditLabel does the lookup.
+        if (haveItem)
+            SelectAndEditLabel(itemPath);
         break;
     case CMD_DELETE:
-        if (data)
-            DeleteSnippet(item, data);
+        if (haveItem)
+        {
+            HTREEITEM cur = FindByPath(TreeView_GetRoot(g_hwndSnippets), itemPath);
+            SnippetItem *d = GetItemData(cur);
+            if (d)
+                DeleteSnippet(cur, d);
+        }
         break;
     }
 }
@@ -531,8 +547,14 @@ LRESULT HandleSnippetsNotify(NMHDR *pnmh, bool *handled)
         ScreenToClient(g_hwndSnippets, &ht.pt);
         HTREEITEM item = TreeView_HitTest(g_hwndSnippets, &ht);
         SnippetItem *d = GetItemData(item);
-        if (d && !d->isFolder && ConfirmDiscard())
-            LoadFile(d->path);
+        if (d && !d->isFolder)
+        {
+            // Copy first — ConfirmDiscard's message box pumps posted
+            // messages, and a pending WM_SNIPPETS_REFRESH would free `d`.
+            std::wstring path = d->path;
+            if (ConfirmDiscard())
+                LoadFile(path);
+        }
         return 0; // folders keep the default expand/collapse behaviour
     }
     case NM_RCLICK:
@@ -579,6 +601,18 @@ LRESULT HandleSnippetsNotify(NMHDR *pnmh, bool *handled)
     case TVN_KEYDOWN:
     {
         const NMTVKEYDOWN *kd = reinterpret_cast<const NMTVKEYDOWN *>(pnmh);
+        if (g_treeDragging)
+        {
+            // Keys during a mouse drag: Esc cancels it; everything else is
+            // swallowed — Del mid-drag would delete-and-rebuild the tree
+            // under the drag state (freed g_dragItem, stuck drag image).
+            if (kd->wVKey == VK_ESCAPE)
+            {
+                ReleaseCapture(); // WM_CAPTURECHANGED → SnippetsCancelDrag
+                SnippetsCancelDrag();
+            }
+            return 0;
+        }
         HTREEITEM sel = TreeView_GetSelection(g_hwndSnippets);
         if (!sel)
             return 0;
@@ -595,8 +629,12 @@ LRESULT HandleSnippetsNotify(NMHDR *pnmh, bool *handled)
         else if (kd->wVKey == VK_RETURN)
         {
             SnippetItem *d = GetItemData(sel);
-            if (d && !d->isFolder && ConfirmDiscard())
-                LoadFile(d->path);
+            if (d && !d->isFolder)
+            {
+                std::wstring path = d->path; // same rationale as NM_DBLCLK
+                if (ConfirmDiscard())
+                    LoadFile(path);
+            }
         }
         return 0;
     }
@@ -635,8 +673,37 @@ LRESULT HandleSnippetsNotify(NMHDR *pnmh, bool *handled)
 // Executed on mouse-up while a tree item is being dragged. Releasing over a
 // folder moves into it, over a snippet moves next to it, over empty panel
 // space moves to the root; releasing outside the panel cancels.
+// Abandon any in-progress splitter or tree drag without performing a drop.
+// Called from the main window's WM_CAPTURECHANGED (Alt menu loop, Win key or
+// another window stole the capture — WM_LBUTTONUP will never arrive) and for
+// Esc pressed during a tree drag.
+void SnippetsCancelDrag()
+{
+    if (g_treeDragging)
+    {
+        g_treeDragging = false;
+        if (g_dragImage)
+        {
+            ImageList_DragLeave(nullptr);
+            ImageList_EndDrag();
+            ImageList_Destroy(g_dragImage);
+            g_dragImage = nullptr;
+        }
+        if (g_hwndSnippets)
+            TreeView_SelectDropTarget(g_hwndSnippets, nullptr);
+        g_dragItem = nullptr;
+    }
+    if (g_splitterDragging)
+    {
+        g_splitterDragging = false;
+        SaveSettings(); // keep whatever width the drag reached
+    }
+}
+
 static void DropDraggedItem()
 {
+    if (!g_dragItem)
+        return; // a tree rebuild invalidated the handle mid-drag
     SnippetItem *src = GetItemData(g_dragItem);
     if (!src)
         return;

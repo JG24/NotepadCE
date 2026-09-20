@@ -100,16 +100,19 @@ NotepadCE is a fork of [Legacy Notepad](https://github.com/forloopcodes/legacy-n
   - Unicode arrows (`→`, `←`, `⇒`) → ASCII (`->`, `<-`, `=>`).
   - Non-breaking space, soft hyphen, ZWJ/ZWNJ, BOM and 19 other invisible characters are stripped.
   - Repeated spaces are collapsed into a single one.
+  - Leading and trailing spaces / tabs are trimmed off every line.
   - Stretches of blank lines are capped at a maximum of two.
 - **Text to Base64** and **Base64 to Text** — two separate entries to encode the selection to Base64 (UTF-8) or decode it back.
 - **Text to URL** and **URL to Text** — percent-encoding (RFC 3986, UTF-8) and its inverse, e.g. `ż` ↔ `%C5%BC`.
 - **SHA-1** of the current selection (bcrypt API).
 - **MD5** of the current selection (bcrypt API).
 - **Change case** — UPPERCASE, lowercase, Title Case.
-- **Trim trailing whitespace**, and **convert tabs to spaces** or back.
+- **Trim trailing whitespace** (line ends only), **trim lines** (both ends — indentation as well), and **convert tabs to spaces** or back.
 - **Sort lines A→Z / Z→A** — locale-aware and case-insensitive, so `ć`, `ł`, `ż` land where the alphabet says, not at the end like an ASCII sort.
 - **Reverse lines** and **join lines**.
 - **Remove empty lines** and **remove duplicate lines** (keeps the first occurrence, order preserved).
+- **Extended find mode** (`\n`, `\r`, `\t`, `\\`) — a checkable entry under Edit → Settings. With it on, escape sequences in the Find and Replace fields are expanded, so you can replace spaces with line breaks or search for a tab. All line-break forms map to a single break (the editor stores one internally) and unknown escapes such as `\q` stay literal, so Windows paths keep working without doubling every backslash.
+- **Lorem Ipsum generator** — a small wizard asking for the number of paragraphs and the average paragraph length in words, with optional "Lorem ipsum dolor sit amet" opening and optional `<p>` wrapping. Paragraph lengths vary ±30% around the average and sentences run 5–15 words, so the result reads like prose instead of a block of filler. Inserted at the caret as a single undoable step.
 
 Every tool acts on the current selection, or on the whole document when nothing is selected. While Tools is enabled, the same menu is also reachable from the editor's right-click context menu.
 
@@ -294,6 +297,8 @@ The interface is available in nine languages (switched live, without restart):
 - 🇨🇳 **简体中文**
 
 The language menu lists each language by its own name (autonym), so an entry stays recognisable whatever the current UI language is set to.
+
+The Simplified Chinese translation was contributed by **[Xrisium](https://github.com/Xrisium)** — thank you! Translations for further languages are welcome: copy `src/lang/en.h`, translate the strings, register the language in `lang.h` / `lang.cpp` / `menu.cpp` / `notepad.rc` and open a pull request.
 
 Each language is a single header file (`src/lang/*.h`) containing a `LangStrings` struct. Adding a new language is one new `.h` plus one menu entry — no infrastructure, no `.po`/`.mo` toolchain.
 

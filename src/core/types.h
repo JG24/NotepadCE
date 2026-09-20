@@ -1,14 +1,4 @@
 /*
-   ▄████████  ▄██████▄     ▄████████  ▄█        ▄██████▄   ▄██████▄     ▄███████▄
-  ███    ███ ███    ███   ███    ███ ███       ███    ███ ███    ███   ███    ███
-  ███    █▀  ███    ███   ███    ███ ███       ███    ███ ███    ███   ███    ███
- ▄███▄▄▄     ███    ███  ▄███▄▄▄▄██▀ ███       ███    ███ ███    ███   ███    ███
-▀▀███▀▀▀     ███    ███ ▀▀███▀▀▀▀▀   ███       ███    ███ ███    ███ ▀█████████▀
-  ███        ███    ███ ▀███████████ ███       ███    ███ ███    ███   ███
-  ███        ███    ███   ███    ███ ███▌    ▄ ███    ███ ███    ███   ███
-  ███         ▀██████▀    ███    ███ █████▄▄██  ▀██████▀   ▀██████▀   ▄████▀
-                          ███    ███ ▀
-
   Core type definitions including enums and structs for the notepad application.
   Provides encoding types, line endings, themes, background settings and app state.
 */
@@ -109,6 +99,9 @@ struct AppState
     bool showSpecialChars = false;
     bool showLineNumbers = false;
     bool toolsEnabled = false;
+    // Extended Find/Replace mode (\n, \r, \t, \\). Toggled from the Tools
+    // menu, so it is only in effect while toolsEnabled is also true.
+    bool findExtended = false;
     bool quickAccessIcons = false;
     // Editor display extras — both OFF by default so a fresh start matches
     // classic Notepad. Toggled from Edit > Settings; drawn as a GDI overlay

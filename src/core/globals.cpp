@@ -1,19 +1,10 @@
 /*
-   ▄████████  ▄██████▄     ▄████████  ▄█        ▄██████▄   ▄██████▄     ▄███████▄
-  ███    ███ ███    ███   ███    ███ ███       ███    ███ ███    ███   ███    ███
-  ███    █▀  ███    ███   ███    ███ ███       ███    ███ ███    ███   ███    ███
- ▄███▄▄▄     ███    ███  ▄███▄▄▄▄██▀ ███       ███    ███ ███    ███   ███    ███
-▀▀███▀▀▀     ███    ███ ▀▀███▀▀▀▀▀   ███       ███    ███ ███    ███ ▀█████████▀
-  ███        ███    ███ ▀███████████ ███       ███    ███ ███    ███   ███
-  ███        ███    ███   ███    ███ ███▌    ▄ ███    ███ ███    ███   ███
-  ███         ▀██████▀    ███    ███ █████▄▄██  ▀██████▀   ▀██████▀   ▄████▀
-                          ███    ███ ▀
-
   Global variable definitions for the notepad application storing runtime state.
   Initializes all shared resources like window handles, GDI objects, and app state.
 */
 
 #include "globals.h"
+#include <richedit.h>
 
 HWND g_hwndMain = nullptr;
 HWND g_hwndEditor = nullptr;
@@ -24,6 +15,9 @@ HWND g_hwndFindDlg = nullptr;
 HWND g_hwndTransparencyDlg = nullptr;
 HWND g_hwndDateFormatDlg = nullptr;
 HWND g_hwndAboutDlg = nullptr;
+HWND g_hwndGotoDlg = nullptr;
+HWND g_hwndLoremDlg = nullptr;
+const wchar_t *g_editorClass = MSFTEDIT_CLASS;
 HACCEL g_hAccel = nullptr;
 AppState g_state;
 WNDPROC g_origEditorProc = nullptr;

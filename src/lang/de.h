@@ -163,4 +163,13 @@ inline LangStrings g_langDE = {
     L"Zeilen s&ortieren A→Z",
     L"Zeilen sortieren Z→&A",
     L"Text zu U&RL",
-    L"URL zu Te&xt"};
+    L"URL zu Te&xt",
+    L"&Zeilen beidseitig kürzen",
+
+    L"Lorem &Ipsum...",
+    L"Lorem-Ipsum-Generator",
+    L"Anzahl der Absätze:",
+    L"Durchschnittliche Absatzlänge (Wörter):",
+    L"Mit „Lorem ipsum dolor sit amet“ beginnen",
+    L"Absätze in <p>-Tags einschließen",
+    L"&Erweiterter Suchmodus (\\n, \\r, \\t)"};

@@ -221,6 +221,14 @@ struct LangStrings
     LStr menuToolsSortDesc;
     LStr menuToolsUrlEncode;
     LStr menuToolsUrlDecode;
+    LStr menuToolsTrimLines;
+    LStr menuToolsLorem;
+    LStr loremTitle;
+    LStr loremParagraphs;
+    LStr loremWords;
+    LStr loremStartWith;
+    LStr loremHtml;
+    LStr menuSettingsExtendedFind;
 };
 
 void InitLanguage();

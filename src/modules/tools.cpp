@@ -56,11 +56,59 @@ static std::wstring GetTargetText(bool *wasSelection)
     return buf;
 }
 
+// Forward declarations — the line helpers live further down with the line
+// transforms, but the normalizer (above them) needs them too.
+static std::wstring NormalizeCR(const std::wstring &text);
+static std::vector<std::wstring> SplitLines(const std::wstring &text);
+static std::wstring JoinWithCR(const std::vector<std::wstring> &lines);
+
+// Strip spaces and tabs from both ends of every line.
+static void TrimLines(std::vector<std::wstring> &lines)
+{
+    for (auto &ln : lines)
+    {
+        size_t last = ln.find_last_not_of(L" \t");
+        if (last == std::wstring::npos)
+        {
+            ln.clear(); // whitespace-only line
+            continue;
+        }
+        ln.erase(last + 1);
+        ln.erase(0, ln.find_first_not_of(L" \t"));
+    }
+}
+
 static void ReplaceTargetText(const std::wstring &text, bool wasSelection)
 {
+    // EM_REPLACESEL parks the caret at the end of what it inserted and
+    // RichEdit scrolls that into view, so every whole-document tool used to
+    // fling the window to the bottom. Snapshot the viewport and the caret,
+    // do the swap with painting suspended (no intermediate frame to flicker),
+    // then put both back.
+    LRESULT firstVisible = SendMessageW(g_hwndEditor, EM_GETFIRSTVISIBLELINE, 0, 0);
+    DWORD selStart = 0, selEnd = 0;
+    SendMessageW(g_hwndEditor, EM_GETSEL,
+                 reinterpret_cast<WPARAM>(&selStart),
+                 reinterpret_cast<LPARAM>(&selEnd));
+
+    SendMessageW(g_hwndEditor, WM_SETREDRAW, FALSE, 0);
     if (!wasSelection)
         SendMessageW(g_hwndEditor, EM_SETSEL, 0, -1);
     SendMessageW(g_hwndEditor, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(text.c_str()));
+
+    // The transform changes the length, so the old offsets are only a hint —
+    // clamp them rather than letting EM_SETSEL run past the end.
+    LRESULT len = SendMessageW(g_hwndEditor, WM_GETTEXTLENGTH, 0, 0);
+    DWORD s = (static_cast<LRESULT>(selStart) > len) ? static_cast<DWORD>(len) : selStart;
+    DWORD e = (static_cast<LRESULT>(selEnd) > len) ? static_cast<DWORD>(len) : selEnd;
+    SendMessageW(g_hwndEditor, EM_SETSEL, s, e);
+
+    LRESULT nowFirst = SendMessageW(g_hwndEditor, EM_GETFIRSTVISIBLELINE, 0, 0);
+    if (nowFirst != firstVisible)
+        SendMessageW(g_hwndEditor, EM_LINESCROLL, 0, firstVisible - nowFirst);
+
+    SendMessageW(g_hwndEditor, WM_SETREDRAW, TRUE, 0);
+    InvalidateRect(g_hwndEditor, nullptr, TRUE);
 }
 
 static std::vector<BYTE> WideToUtf8Bytes(const std::wstring &text)
@@ -218,7 +266,18 @@ void ToolsNormalizeText()
         }
     }
 
-    ReplaceTargetText(step3, wasSelection);
+    // Pass 4: trim leading / trailing spaces and tabs off every line. Pasted
+    // text routinely carries indentation from the source layout and stray
+    // spaces before the line break; normalising without this leaves exactly
+    // the litter the tool is meant to remove.
+    auto lines = SplitLines(step3);
+    TrimLines(lines);
+
+    // JoinWithCR emits CR-only breaks, which is what EM_REPLACESEL wants —
+    // a "\r\n" pair fed to it counts as two paragraph breaks and would double
+    // every line. (The editor stores CR internally; the file's line ending on
+    // save is a separate setting and is unaffected.)
+    ReplaceTargetText(JoinWithCR(lines), wasSelection);
 }
 
 // ---------- Base64 ---------------------------------------------------------
@@ -484,6 +543,146 @@ void ToolsTrimTrailing()
         else
             ln.erase(end + 1);
     }
+    ReplaceTargetText(JoinWithCR(lines), wasSelection);
+}
+
+// ---------- Lorem ipsum ----------------------------------------------------
+
+// Classic lorem vocabulary. Stored as plain pointers rather than any container
+// so it costs string data and nothing else.
+static const wchar_t *const kLoremWords[] = {
+    L"lorem", L"ipsum", L"dolor", L"sit", L"amet", L"consectetur", L"adipiscing", L"elit",
+    L"sed", L"do", L"eiusmod", L"tempor", L"incididunt", L"ut", L"labore", L"et",
+    L"dolore", L"magna", L"aliqua", L"enim", L"ad", L"minim", L"veniam", L"quis",
+    L"nostrud", L"exercitation", L"ullamco", L"laboris", L"nisi", L"aliquip", L"ex", L"ea",
+    L"commodo", L"consequat", L"duis", L"aute", L"irure", L"in", L"reprehenderit", L"voluptate",
+    L"velit", L"esse", L"cillum", L"eu", L"fugiat", L"nulla", L"pariatur", L"excepteur",
+    L"sint", L"occaecat", L"cupidatat", L"non", L"proident", L"sunt", L"culpa", L"qui",
+    L"officia", L"deserunt", L"mollit", L"anim", L"id", L"est", L"laborum", L"curabitur",
+    L"pretium", L"tincidunt", L"lacus", L"gravida", L"orci", L"odio", L"nullam", L"varius",
+    L"turpis", L"molestie", L"sem", L"fermentum", L"vestibulum", L"convallis", L"morbi", L"accumsan",
+    L"laoreet", L"donec", L"ultrices", L"facilisis", L"nunc", L"luctus", L"rhoncus", L"dapibus",
+    L"augue", L"sodales", L"integer", L"aliquet", L"magnis", L"parturient", L"montes", L"nascetur",
+    L"ridiculus", L"mus", L"praesent", L"porttitor", L"mauris", L"egestas", L"suscipit", L"felis",
+    L"maecenas", L"tempus", L"scelerisque", L"quam", L"pellentesque", L"habitant", L"senectus", L"netus",
+    L"fames", L"imperdiet", L"posuere", L"cubilia", L"curae", L"vivamus", L"volutpat", L"feugiat"};
+static const int kLoremWordCount = static_cast<int>(sizeof(kLoremWords) / sizeof(kLoremWords[0]));
+
+// xorshift32 — a handful of instructions. <random> would drag in a mountain of
+// template code for a job that does not need statistical rigour.
+static unsigned g_loremSeed = 0;
+static unsigned LoremRand()
+{
+    if (g_loremSeed == 0)
+        g_loremSeed = GetTickCount() | 1u;
+    unsigned x = g_loremSeed;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    g_loremSeed = x;
+    return x;
+}
+
+static int LoremRange(int lo, int hi) // inclusive
+{
+    if (hi <= lo)
+        return lo;
+    return lo + static_cast<int>(LoremRand() % static_cast<unsigned>(hi - lo + 1));
+}
+
+std::wstring GenerateLoremIpsum(int paragraphs, int avgWords, bool startWithLorem, bool htmlTags)
+{
+    // Clamps mirror the dialog's, so calling this directly can't blow up either.
+    if (paragraphs < 1) paragraphs = 1;
+    if (paragraphs > 500) paragraphs = 500;
+    if (avgWords < 5) avgWords = 5;
+    if (avgWords > 500) avgWords = 500;
+
+    std::wstring out;
+    out.reserve(static_cast<size_t>(paragraphs) * avgWords * 7);
+
+    for (int p = 0; p < paragraphs; ++p)
+    {
+        // Vary each paragraph +/-30% around the average — paragraphs of
+        // identical length read as filler at a glance, which defeats the point.
+        int target = LoremRange(avgWords * 70 / 100, avgWords * 130 / 100);
+        if (target < 5)
+            target = 5;
+
+        std::wstring para;
+        int used = 0;
+        if (p == 0 && startWithLorem)
+        {
+            // The canonical opening, verbatim — that is the whole point of the
+            // option, so it must not come out as a random permutation.
+            para = L"Lorem ipsum dolor sit amet, consectetur adipiscing elit.";
+            used = 8;
+        }
+        while (used < target)
+        {
+            int remaining = target - used;
+            int len = LoremRange(5, 15);
+            if (len > remaining)
+                len = remaining;
+            if (len < 3 && !para.empty())
+                break; // don't leave a stub sentence at the end
+            if (len < 3)
+                len = 3;
+
+            // One comma somewhere in the middle of longer sentences.
+            int commaAt = (len >= 8) ? LoremRange(3, len - 3) : -1;
+
+            std::wstring sentence;
+            for (int w = 0; w < len; ++w)
+            {
+                const wchar_t *word = kLoremWords[LoremRand() % static_cast<unsigned>(kLoremWordCount)];
+                if (w > 0)
+                    sentence += L' ';
+                sentence += word;
+                if (w == commaAt)
+                    sentence += L',';
+            }
+            sentence[0] = static_cast<wchar_t>(towupper(sentence[0]));
+            sentence += L'.';
+
+            if (!para.empty())
+                para += L' ';
+            para += sentence;
+            used += len;
+        }
+
+        if (htmlTags)
+            para = L"<p>" + para + L"</p>";
+
+        if (p > 0)
+            out += L"\r\r"; // blank line between paragraphs (CR-only, see above)
+        out += para;
+    }
+    return out;
+}
+
+void ToolsInsertLorem(int paragraphs, int avgWords, bool startWithLorem, bool htmlTags)
+{
+    std::wstring text = GenerateLoremIpsum(paragraphs, avgWords, startWithLorem, htmlTags);
+    if (text.empty())
+        return;
+    // Inserted at the caret (replacing any selection) as one undoable step,
+    // and the caret is scrolled into view — unlike the transforms, seeing what
+    // was just generated is the whole point.
+    SendMessageW(g_hwndEditor, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(text.c_str()));
+    SendMessageW(g_hwndEditor, EM_SCROLLCARET, 0, 0);
+    SetFocus(g_hwndEditor);
+}
+
+// Trailing whitespace plus indentation — the "trim" every other editor means.
+void ToolsTrimLines()
+{
+    bool wasSelection = false;
+    std::wstring text = GetTargetText(&wasSelection);
+    if (text.empty())
+        return;
+    auto lines = SplitLines(text);
+    TrimLines(lines);
     ReplaceTargetText(JoinWithCR(lines), wasSelection);
 }
 

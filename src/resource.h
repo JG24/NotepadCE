@@ -1,14 +1,4 @@
 /*
-   ▄████████  ▄██████▄     ▄████████  ▄█        ▄██████▄   ▄██████▄     ▄███████▄
-  ███    ███ ███    ███   ███    ███ ███       ███    ███ ███    ███   ███    ███
-  ███    █▀  ███    ███   ███    ███ ███       ███    ███ ███    ███   ███    ███
- ▄███▄▄▄     ███    ███  ▄███▄▄▄▄██▀ ███       ███    ███ ███    ███   ███    ███
-▀▀███▀▀▀     ███    ███ ▀▀███▀▀▀▀▀   ███       ███    ███ ███    ███ ▀█████████▀
-  ███        ███    ███ ▀███████████ ███       ███    ███ ███    ███   ███
-  ███        ███    ███   ███    ███ ███▌    ▄ ███    ███ ███    ███   ███
-  ███         ▀██████▀    ███    ███ █████▄▄██  ▀██████▀   ▀██████▀   ▄████▀
-                          ███    ███ ▀
-
   Resource identifiers for menus, accelerators, icons, and control IDs.
 */
 
@@ -20,7 +10,7 @@
 
 // Human-readable application version, shown in the About dialog. Keep in
 // sync with the VERSION in CMakeLists.txt and app.manifest.
-#define APP_VERSION L"0.9.5"
+#define APP_VERSION L"0.9.6"
 
 #define IDC_EDITOR 1000
 #define IDC_STATUSBAR 1001
@@ -120,6 +110,9 @@
 #define IDM_TOOLS_SORTDESC 40216
 #define IDM_TOOLS_URLENCODE 40217
 #define IDM_TOOLS_URLDECODE 40218
+#define IDM_TOOLS_TRIMLINES 40219
+#define IDM_TOOLS_LOREM 40220
+#define IDM_EDIT_SETTINGS_EXTENDEDFIND 40221
 
 #define IDM_QUICK_SPELLCHECK 40300
 #define IDM_QUICK_ONTOP 40301

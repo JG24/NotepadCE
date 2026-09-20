@@ -163,4 +163,13 @@ inline LangStrings g_langEN = {
     L"S&ort Lines A→Z",
     L"Sort Lines Z→&A",
     L"Text to U&RL",
-    L"URL to Te&xt"};
+    L"URL to Te&xt",
+    L"Trim &Lines (Both Ends)",
+
+    L"Lorem &Ipsum...",
+    L"Lorem Ipsum Generator",
+    L"Number of paragraphs:",
+    L"Average paragraph length (words):",
+    L"Start with \"Lorem ipsum dolor sit amet\"",
+    L"Wrap paragraphs in <p> tags",
+    L"&Extended Find Mode (\\n, \\r, \\t)"};

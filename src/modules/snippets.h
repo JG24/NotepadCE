@@ -1,14 +1,4 @@
 /*
-   ▄████████  ▄██████▄     ▄████████  ▄█        ▄██████▄   ▄██████▄     ▄███████▄
-  ███    ███ ███    ███   ███    ███ ███       ███    ███ ███    ███   ███    ███
-  ███    █▀  ███    ███   ███    ███ ███       ███    ███ ███    ███   ███    ███
- ▄███▄▄▄     ███    ███  ▄███▄▄▄▄██▀ ███       ███    ███ ███    ███   ███    ███
-▀▀███▀▀▀     ███    ███ ▀▀███▀▀▀▀▀   ███       ███    ███ ███    ███ ▀█████████▀
-  ███        ███    ███ ▀███████████ ███       ███    ███ ███    ███   ███
-  ███        ███    ███   ███    ███ ███▌    ▄ ███    ███ ███    ███   ███
-  ███         ▀██████▀    ███    ███ █████▄▄██  ▀██████▀   ▀██████▀   ▄████▀
-                          ███    ███ ▀
-
   Snippets side panel — a TreeView over the real directory <exe dir>\Snippets
   (.txt files in real sub-folders). Toggled from the quick-access icons;
   double-click opens a snippet for editing, the context menu can insert one
@@ -52,3 +42,8 @@ bool SnippetsHandleSetCursor();
 bool SnippetsHandleLButtonDown(LPARAM lParam);
 bool SnippetsHandleMouseMove(LPARAM lParam);
 bool SnippetsHandleLButtonUp();
+
+// Abandons any in-progress splitter/tree drag without dropping. Wired to
+// the main window's WM_CAPTURECHANGED so a stolen capture (Alt menu loop,
+// Win key, another app) can't leave the drag state stuck.
+void SnippetsCancelDrag();

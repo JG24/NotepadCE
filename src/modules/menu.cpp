@@ -228,6 +228,7 @@ void UpdateMenuStrings()
             SetItemText(hSettingsMenu, 2, TRUE, lang.menuSettingsQuickIcons.c_str());
             SetItemText(hSettingsMenu, 3, TRUE, lang.menuSettingsHighlightLine.c_str());
             SetItemText(hSettingsMenu, 4, TRUE, lang.menuSettingsHighlightWord.c_str());
+            SetItemText(hSettingsMenu, 5, TRUE, lang.menuSettingsExtendedFind.c_str());
         }
     }
 
@@ -314,6 +315,8 @@ void UpdateMenuStrings()
             SetItemText(hToolsMenu, IDM_TOOLS_LOWERCASE, FALSE, lang.menuToolsLowercase.c_str());
             SetItemText(hToolsMenu, IDM_TOOLS_TITLECASE, FALSE, lang.menuToolsTitleCase.c_str());
             SetItemText(hToolsMenu, IDM_TOOLS_TRIMTRAILING, FALSE, lang.menuToolsTrimTrailing.c_str());
+            SetItemText(hToolsMenu, IDM_TOOLS_TRIMLINES, FALSE, lang.menuToolsTrimLines.c_str());
+            SetItemText(hToolsMenu, IDM_TOOLS_LOREM, FALSE, lang.menuToolsLorem.c_str());
             SetItemText(hToolsMenu, IDM_TOOLS_TABS2SPACES, FALSE, lang.menuToolsTabsToSpaces.c_str());
             SetItemText(hToolsMenu, IDM_TOOLS_SPACES2TABS, FALSE, lang.menuToolsSpacesToTabs.c_str());
             SetItemText(hToolsMenu, IDM_TOOLS_URLENCODE, FALSE, lang.menuToolsUrlEncode.c_str());

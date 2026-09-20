@@ -1,14 +1,4 @@
 /*
-   ▄████████  ▄██████▄     ▄████████  ▄█        ▄██████▄   ▄██████▄     ▄███████▄
-  ███    ███ ███    ███   ███    ███ ███       ███    ███ ███    ███   ███    ███
-  ███    █▀  ███    ███   ███    ███ ███       ███    ███ ███    ███   ███    ███
- ▄███▄▄▄     ███    ███  ▄███▄▄▄▄██▀ ███       ███    ███ ███    ███   ███    ███
-▀▀███▀▀▀     ███    ███ ▀▀███▀▀▀▀▀   ███       ███    ███ ███    ███ ▀█████████▀
-  ███        ███    ███ ▀███████████ ███       ███    ███ ███    ███   ███
-  ███        ███    ███   ███    ███ ███▌    ▄ ███    ███ ███    ███   ███
-  ███         ▀██████▀    ███    ███ █████▄▄██  ▀██████▀   ▀██████▀   ▄████▀
-                          ███    ███ ▀
-
   Main entry point and window procedure for Legacy Notepad text editor application.
   Coordinates all modules and handles Windows message loop and command dispatching.
 */
@@ -40,6 +30,12 @@
 #include "modules/quickicons.h"
 #include "modules/snippets.h"
 #include "lang/lang.h"
+
+// Only declared by the SDK headers for WINVER >= 0x0603; we target 0x0602.
+// The message is simply never sent on systems that don't know it.
+#ifndef WM_DPICHANGED
+#define WM_DPICHANGED 0x02E0
+#endif
 
 static bool g_ncMouseTracking = false;
 
@@ -96,8 +92,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 return -1;
             }
         }
+        g_editorClass = richEditClass; // ApplyWordWrap recreates with the same class
         g_hwndEditor = CreateWindowExW(0, richEditClass, nullptr,
-                                       WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_HSCROLL | ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL | ES_WANTRETURN | ES_NOHIDESEL,
+                                       WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_HSCROLL | ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL | ES_WANTRETURN | ES_NOHIDESEL | ES_DISABLENOSCROLL,
                                        0, 0, 100, 100, hwnd, reinterpret_cast<HMENU>(IDC_EDITOR), GetModuleHandleW(nullptr), nullptr);
         g_origEditorProc = reinterpret_cast<WNDPROC>(SetWindowLongPtrW(g_hwndEditor, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(EditorSubclassProc)));
         CreateGutterWindow(hwnd);
@@ -145,6 +142,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             CheckMenuItem(hMenu, IDM_VIEW_SHOWSPECIAL, g_state.showSpecialChars ? MF_CHECKED : MF_UNCHECKED);
             CheckMenuItem(hMenu, IDM_VIEW_LINENUMBERS, g_state.showLineNumbers ? MF_CHECKED : MF_UNCHECKED);
             CheckMenuItem(hMenu, IDM_EDIT_SETTINGS_TOOLS, g_state.toolsEnabled ? MF_CHECKED : MF_UNCHECKED);
+            CheckMenuItem(hMenu, IDM_EDIT_SETTINGS_EXTENDEDFIND, g_state.findExtended ? MF_CHECKED : MF_UNCHECKED);
             CheckMenuItem(hMenu, IDM_EDIT_SETTINGS_QUICKICONS, g_state.quickAccessIcons ? MF_CHECKED : MF_UNCHECKED);
             CheckMenuItem(hMenu, IDM_EDIT_SETTINGS_HIGHLIGHTLINE, g_state.highlightCurrentLine ? MF_CHECKED : MF_UNCHECKED);
             CheckMenuItem(hMenu, IDM_EDIT_SETTINGS_HIGHLIGHTWORD, g_state.highlightOccurrences ? MF_CHECKED : MF_UNCHECKED);
@@ -291,6 +289,27 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         }
         return result;
     }
+    case WM_DPICHANGED:
+    {
+        // We opt into Per-Monitor-V2 awareness in wWinMain, which means the
+        // system scales nothing for us when the window crosses to a monitor
+        // with a different DPI: adopt the suggested rect and rebuild every
+        // DPI-derived metric (editor/gutter font, status-bar segments).
+        const RECT *rc = reinterpret_cast<const RECT *>(lParam);
+        SetWindowPos(hwnd, nullptr, rc->left, rc->top,
+                     rc->right - rc->left, rc->bottom - rc->top,
+                     SWP_NOZORDER | SWP_NOACTIVATE);
+        ApplyFont();
+        SetupStatusBarParts();
+        ResizeControls();
+        return 0;
+    }
+    case WM_CAPTURECHANGED:
+        // Mouse capture went elsewhere mid-drag (Alt menu loop, Win key,
+        // another window) — WM_LBUTTONUP will never arrive, so abandon any
+        // snippets splitter/tree drag before its state goes stale.
+        SnippetsCancelDrag();
+        break;
     case WM_SETTINGCHANGE:
     {
         if (lParam && wcscmp(reinterpret_cast<LPCWSTR>(lParam), L"ImmersiveColorSet") == 0)
@@ -813,6 +832,18 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         case IDM_TOOLS_TITLECASE:
             ToolsTitleCase();
             break;
+        case IDM_TOOLS_TRIMLINES:
+            ToolsTrimLines();
+            break;
+        case IDM_TOOLS_LOREM:
+            ToolsLoremIpsum();
+            break;
+        case IDM_EDIT_SETTINGS_EXTENDEDFIND:
+            g_state.findExtended = !g_state.findExtended;
+            CheckMenuItem(GetMenu(g_hwndMain), IDM_EDIT_SETTINGS_EXTENDEDFIND,
+                          g_state.findExtended ? MF_CHECKED : MF_UNCHECKED);
+            SaveSettings();
+            break;
         case IDM_TOOLS_TRIMTRAILING:
             ToolsTrimTrailing();
             break;
@@ -1041,6 +1072,10 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR lpCmdLine, int nCmdSh
         if (g_hwndDateFormatDlg && IsDialogMessageW(g_hwndDateFormatDlg, &msg))
             continue;
         if (g_hwndAboutDlg && IsDialogMessageW(g_hwndAboutDlg, &msg))
+            continue;
+        if (g_hwndGotoDlg && IsDialogMessageW(g_hwndGotoDlg, &msg))
+            continue;
+        if (g_hwndLoremDlg && IsDialogMessageW(g_hwndLoremDlg, &msg))
             continue;
         // While the snippets tree (or its in-place label editor) has focus,
         // accelerators must not fire — Ctrl+A/Z/Del belong to the edit box

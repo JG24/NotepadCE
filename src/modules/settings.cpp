@@ -355,6 +355,7 @@ static void DoLoad()
     g_state.showSpecialChars = obj.getBool("showSpecialChars", g_state.showSpecialChars);
     g_state.showLineNumbers = obj.getBool("showLineNumbers", g_state.showLineNumbers);
     g_state.toolsEnabled = obj.getBool("toolsEnabled", g_state.toolsEnabled);
+    g_state.findExtended = obj.getBool("findExtended", g_state.findExtended);
     g_state.quickAccessIcons = obj.getBool("quickAccessIcons", g_state.quickAccessIcons);
     g_state.highlightCurrentLine = obj.getBool("highlightCurrentLine", g_state.highlightCurrentLine);
     g_state.highlightOccurrences = obj.getBool("highlightOccurrences", g_state.highlightOccurrences);
@@ -448,6 +449,7 @@ static void DoSave()
     kvBool("showSpecialChars", g_state.showSpecialChars);
     kvBool("showLineNumbers", g_state.showLineNumbers);
     kvBool("toolsEnabled", g_state.toolsEnabled);
+    kvBool("findExtended", g_state.findExtended);
     kvBool("quickAccessIcons", g_state.quickAccessIcons);
     kvBool("highlightCurrentLine", g_state.highlightCurrentLine);
     kvBool("highlightOccurrences", g_state.highlightOccurrences);

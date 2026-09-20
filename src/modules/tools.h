@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string>
+
 void ToolsNormalizeText();
 void ToolsBase64();
 void ToolsBase64Decode();
@@ -12,6 +14,12 @@ void ToolsUppercase();
 void ToolsLowercase();
 void ToolsTitleCase();
 void ToolsTrimTrailing();
+void ToolsTrimLines();
+
+// Lorem ipsum generator. Paragraph lengths vary around avgWords; the result is
+// inserted at the caret. Clamped internally to 1..500 paragraphs, 5..500 words.
+std::wstring GenerateLoremIpsum(int paragraphs, int avgWords, bool startWithLorem, bool htmlTags);
+void ToolsInsertLorem(int paragraphs, int avgWords, bool startWithLorem, bool htmlTags);
 void ToolsTabsToSpaces();
 void ToolsSpacesToTabs();
 void ToolsReverseLines();
